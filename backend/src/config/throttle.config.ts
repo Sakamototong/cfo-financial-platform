@@ -20,17 +20,17 @@ export const throttleConfig: ThrottlerModuleOptions = [
   {
     name: 'default',
     ttl: 60000,  // 60 seconds in milliseconds
-    limit: 300,  // 300 requests per minute (5 req/sec) - Development/UAT friendly
+    limit: 1000,  // 1000 requests per minute (16.7 req/sec) - Development/UAT friendly
   },
   {
     name: 'auth',
     ttl: 60000,  // 60 seconds
-    limit: 10,   // 10 login attempts per minute (increased from 5)
+    limit: 30,   // 30 login attempts per minute
   },
   {
     name: 'etl',
     ttl: 60000,  // 60 seconds
-    limit: 30,   // 30 ETL operations per minute (uploads can be large)
+    limit: 100,   // 100 ETL operations per minute (uploads can be large)
   },
 ];
 
