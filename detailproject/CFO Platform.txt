@@ -1,0 +1,192 @@
+CFO Platform ñ Module List & Phase Mapping (Updated Version A)
+(Simple Document Format ó æ√ÈÕ¡„™Èß“π ”À√—∫∑’¡æ—≤π“)
+
+1. Overview
+This document summarizes all required modules for developing the CFO Platform, structured across 3 development phases and aligned with a subscription model sold per company (tenant-level subscription).
+Platform Goals
+* Provide a full CFO toolset for SMEs and enterprises
+* Support manual ? connected ? AI-driven workflows
+* Deliver modular design for scalable subscription-based business model
+* Ensure each company (tenant) operates in an isolated environment (multi-tenant)
+Development Phases
+* Phase 1 ñ Manual CFO Platform
+Full CFO functions, manual import & calculation
+* Phase 2 ñ Connected CFO Platform
+Integrations, automation, workflow, billing engine
+* Phase 3 ñ AI CFO Platform
+Forecasting, anomaly detection, AI scenario engine
+
+2. Module List (UI + Backend)
+
+M1 ñ Portal & User Management (Frontend)
+User & Access
+* User Registration / Login / Change Password
+* User Profile
+* Company Profile (authorized users only)
+User Manager (User Lifecycle Management)
+* Transfer company account owner
+* Add/Invite user (Recruit)
+* Remove/Deactivate user (Resign)
+* Role assignment (viewer / accountant / admin / CFO)
+* User permissions controlled by subscription tier
+Subscription (Tenant-Level)
+* Subscription status & plan details
+* Unsubscribe / Cancel subscription
+* Feature access control by package
+(Starter / Pro / Enterprise / AI+)
+Billing (UI ñ Phase 1 basic / Phase 2 full integration)
+* Billing cycles:
+o Monthly
+o Quarterly
+o Annual
+o Multi-year
+* Invoice view
+* Payment history (Phase 2)
+Payment (UI ñ Phase 1 basic / Phase 2 integrated)
+* QR Transfer
+* Credit Cards
+* Manual Transfer (slip upload)
+* Dunning flow / retry (Phase 2)
+Reports (Standard)
+* Revenue vs Accounting records
+* Revenue sharing records
+
+M2 ñ ETL & Data Import
+Projection Data Import
+* Upload Excel/CSV templates
+* Template validation
+* Field mapping configuration
+DIM Configuration
+* Row hierarchy:
+o Yearly
+o Quarterly
+o Monthly
+* Column hierarchy:
+o General scenario: Revenue, Cost
+o Industrial scenario: Raw material, Treatment, Logistics, Insurance
+o Custom (user-defined): Product category, SKU, Department, Plant
+Manual Financial Statement Import
+* Profit & Loss (P&L)
+* Balance Sheet
+* Cash Flow
+AI Document Extraction (Phase 3)
+* TAX PP.30 extraction
+* Document parsing & classification
+* Convert to structured data
+
+M3 ñ Financial Projection & Scenario
+Scenario Types
+* Best
+* Base
+* Worst
+* User-defined Scenario (Phase 2)
+* AI-generated Scenario (Phase 3)
+Assumption Management
+* Revenue
+* Expense
+* Balance Sheet
+* Asset
+* Depreciation (CAPEX)
+* Liabilities
+Projection Outputs
+* Profit & Loss Projection
+* Balance Sheet Projection
+* Cashflow Statement Projection
+* Projection Return
+Financial Model Engines
+* WACC (Weighted Average Cost of Capital)
+* CAPM (Capital Asset Pricing Model)
+
+M4 ñ Workflow (Approval System)
+Basic Workflow (Phase 1)
+* Define document flow (sequence lock)
+* User lifecycle approval:
+o Owner transfer
+o Add user
+o Remove user
+Extended Workflow (Phase 2)
+* Expense approvals
+* Budget approvals
+* Payment approvals
+* Multi-step approval chains
+
+M5 ñ Backend Admin Console
+User Administration
+* Approve account (manual/automatic)
+* Block / Suspend / Blacklist account
+* Manage tenant-level roles
+* System-level audit for user actions
+User Lifecycle Audit Log
+* Add/Invite user (Recruit)
+* Deactivate user (Resign)
+* Transfer ownership
+* All actions recorded for compliance
+ETL Parameter Setup
+* Exchange rate
+* Inflation rate
+* Credit term
+* Depreciation policies
+Billing & Payment System (Phase 2)
+* Billing cycles configuration
+* Payment gateway configuration
+* Payment status
+* Payment history
+* Revenue vs Accounting reports
+* Revenue sharing management
+* Dunning process (failed payments)
+Human Resource (Reinterpreted as User Lifecycle)
+* Recruit = Add/Invite user
+* Resign = Remove/Deactivate user
+* Not connected to external HR system
+
+3. Phase Mapping Summary
+
+Phase 1 ñ Manual Platform
+Included Modules:
+* User Management & Lifecycle (Add/Invite/Remove user)
+* Subscription & Billing UI (basic)
+* Manual Reports
+* Manual ETL
+* Manual Financial Projection & Scenario
+* Basic Workflow (user operations)
+* Admin Console: basic user controls
+Purpose:
+* Provide full CFO functionality with manual data handling
+* Establish multi-tenant foundation + subscription structure
+
+Phase 2 ñ Connected Platform
+Included Modules:
+* ETL Parameter Setup (FX, inflation, credit term, depreciation)
+* Billing & Payment System (full integration)
+* User Lifecycle Audit Log
+* Extended Workflow (expense/budget/payment approvals)
+* External Integrations (ERP, e-Tax, Bank, Payment Gateway)
+Purpose:
+* Automate data flow across systems
+* Strengthen subscription billing
+* Reduce manual work for accounting/finance
+
+Phase 3 ñ AI CFO Platform
+Included Modules:
+* AI Document Extraction (PP.30)
+* AI Scenario Engine
+* AI Forecasting (revenue, cashflow, expense)
+* AI Anomaly Detection
+* AI Recommendations & Insights
+Purpose:
+* Add AI intelligence for decision support
+* Predict risks and opportunities
+* Elevate the platform to a ìVirtual CFO Assistantî
+
+
+
+
+
+
+
+
+
+
+
+
+

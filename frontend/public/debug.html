@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Debug - LocalStorage Check</title>
+  <style>
+    body { font-family: monospace; padding: 20px; }
+    pre { background: #f5f5f5; padding: 10px; border-radius: 4px; }
+    button { padding: 8px 16px; margin: 5px; }
+  </style>
+</head>
+<body>
+  <h2>LocalStorage Debug</h2>
+  <button onclick="checkStorage()">Check Storage</button>
+  <button onclick="testAPI()">Test API Call</button>
+  <button onclick="clearStorage()">Clear Storage</button>
+  
+  <h3>Storage Contents:</h3>
+  <pre id="storage"></pre>
+  
+  <h3>API Test Result:</h3>
+  <pre id="result"></pre>
+
+  <script>
+    function checkStorage() {
+      const storage = {
+        access_token: localStorage.getItem('access_token'),
+        refresh_token: localStorage.getItem('refresh_token'),
+        tenant_id: localStorage.getItem('tenant_id'),
+        user_role: localStorage.getItem('user_role'),
+        user_email: localStorage.getItem('user_email')
+      };
+      document.getElementById('storage').textContent = JSON.stringify(storage, null, 2);
+    }
+    
+    async function testAPI() {
+      const token = localStorage.getItem('access_token');
+      const tenant = localStorage.getItem('tenant_id');
+      
+      try {
+        const response = await fetch('http://localhost:3000/tenants', {
+          headers: {
+            'Authorization': token ? `Bearer ${token}` : '',
+            'X-Tenant-Id': tenant || ''
+          }
+        });
+        
+        const data = await response.json();
+        document.getElementById('result').textContent = 
+          `Status: ${response.status}\n` +
+          `Response:\n${JSON.stringify(data, null, 2)}`;
+      } catch (err) {
+        document.getElementById('result').textContent = 'Error: ' + err.message;
+      }
+    }
+    
+    function clearStorage() {
+      localStorage.clear();
+      checkStorage();
+    }
+    
+    // Auto-check on load
+    checkStorage();
+  </script>
+</body>
+</html>

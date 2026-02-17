@@ -1,0 +1,53 @@
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - ./init:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:21.1.1
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    command: start-dev
+    ports:
+      - "8081:8080"
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    environment:
+      PG_ROOT_USER: postgres
+      PG_ROOT_PASSWORD: postgres
+      PG_HOST: db
+      PG_PORT: 5432
+      PORT: 3000
+      KMS_MASTER_KEY: ${KMS_MASTER_KEY}
+      KEYCLOAK_HOST: http://keycloak:8080
+      KEYCLOAK_CLIENT_ID: cfo-client
+      KEYCLOAK_REALM: master
+      # OpenAI API key for Swagger assistant (set locally; do NOT commit real keys)
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    depends_on:
+      - db
+      - keycloak
+    ports:
+      - "3000:3000"
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      args:
+        # When serving the frontend to the host browser, the backend should
+        # be reachable at localhost:3000. Use this build arg for local runs.
+        VITE_API_BASE: http://localhost:3000
+    ports:
+      - "8080:80"

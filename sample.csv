@@ -1,0 +1,4 @@
+﻿line_code,line_name,amount,parent_code,currency,notes,statement_type,period_type,period_start,period_end,scenario
+1000,Revenue,50000,,THB,,PL,monthly,2024-01-01,2024-01-31,actual
+1100,Cost of Sales,30000,1000,THB,,,,,,
+2000,Operating Expenses,10000,,THB,,,,,,

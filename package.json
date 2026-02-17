@@ -1,0 +1,35 @@
+{
+  "name": "cfo-platform",
+  "version": "1.0.0-poc",
+  "description": "CFO Financial Projection Platform",
+  "scripts": {
+    "start": "echo '🚀 Starting CFO Platform...' && chmod +x start.sh && ./start.sh",
+    "stop": "echo '🛑 Stopping CFO Platform...' && chmod +x stop.sh && ./stop.sh",
+    "setup": "echo '⚙️  Running setup wizard...' && node scripts/setup-wizard.js",
+    "test": "echo '🧪 Running tests...' && node scripts/test-runner.js",
+    "test:api": "chmod +x test-tenant-api.sh && ./test-tenant-api.sh",
+    "test:financial": "pwsh ./test-financial.ps1 || sh ./test-financial.sh",
+    "test:etl": "pwsh ./test-etl.ps1 || sh ./test-etl.sh",
+    "test:projection": "chmod +x test-projection-enhanced.sh && ./test-projection-enhanced.sh",
+    "test:transfer": "chmod +x test-transfer-simple.sh && ./test-transfer-simple.sh",
+    "health": "curl -s http://localhost:3000/health | jq '.'",
+    "status": "cd infra && docker compose ps",
+    "logs": "cd infra && docker compose logs -f",
+    "logs:backend": "cd infra && docker compose logs -f backend",
+    "logs:frontend": "cd infra && docker compose logs -f frontend",
+    "logs:db": "cd infra && docker compose logs -f postgres",
+    "restart": "cd infra && docker compose restart",
+    "clean": "cd infra && docker compose down -v && rm -rf backend/node_modules frontend/node_modules",
+    "dev:backend": "cd backend && npm run start:dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build:backend": "cd backend && npm run build",
+    "build:frontend": "cd frontend && npm run build"
+  },
+  "dependencies": {
+    "@types/multer": "^2.0.0",
+    "axios": "^1.13.5",
+    "csv-parse": "^6.1.0",
+    "multer": "^2.0.2",
+    "xlsx": "^0.18.5"
+  }
+}

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>CFO Platform - Clear Storage</title>
+  <style>
+    body { 
+      font-family: system-ui, -apple-system, sans-serif; 
+      max-width: 600px; 
+      margin: 50px auto; 
+      padding: 20px;
+    }
+    button { 
+      padding: 10px 20px; 
+      margin: 5px; 
+      font-size: 16px; 
+      cursor: pointer;
+      border: none;
+      border-radius: 4px;
+      background: #2563eb;
+      color: white;
+    }
+    button:hover { background: #1d4ed8; }
+    .info { 
+      background: #f3f4f6; 
+      padding: 15px; 
+      border-radius: 4px; 
+      margin: 10px 0;
+      font-family: monospace;
+      font-size: 14px;
+    }
+    .success { 
+      background: #d1fae5; 
+      color: #065f46; 
+      padding: 10px; 
+      border-radius: 4px;
+      margin: 10px 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔧 CFO Platform Debug</h1>
+  
+  <h2>Current Storage:</h2>
+  <div id="storage" class="info"></div>
+  
+  <button onclick="clearStorage()">Clear All Storage</button>
+  <button onclick="location.reload()">Refresh</button>
+  <button onclick="location.href='/login'">Go to Login</button>
+  
+  <div id="message"></div>
+  
+  <script>
+    function showStorage() {
+      const storage = {
+        access_token: localStorage.getItem('access_token') ? '✅ Present' : '❌ None',
+        refresh_token: localStorage.getItem('refresh_token') ? '✅ Present' : '❌ None',
+        user_role: localStorage.getItem('user_role') || '❌ None',
+        user_email: localStorage.getItem('user_email') || '❌ None',
+        tenantId: localStorage.getItem('tenantId') || '❌ None',
+      }
+      
+      document.getElementById('storage').innerHTML = 
+        Object.entries(storage).map(([key, val]) => `${key}: ${val}`).join('<br>')
+    }
+    
+    function clearStorage() {
+      localStorage.clear()
+      document.getElementById('message').innerHTML = 
+        '<div class="success">✅ Storage cleared! Please refresh or go to login.</div>'
+      showStorage()
+    }
+    
+    showStorage()
+  </script>
+</body>
+</html>

@@ -1,0 +1,162 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  backend-tests:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: npm ci --legacy-peer-deps
+
+      - name: Run tests
+        working-directory: ./backend
+        env:
+          PG_HOST: localhost
+          PG_PORT: 5432
+          PG_ROOT_USER: postgres
+          PG_ROOT_PASSWORD: postgres
+          KMS_MASTER_KEY: ${{ secrets.KMS_MASTER_KEY_TEST }}
+        run: npm run test:cov
+
+      - name: Build
+        working-directory: ./backend
+        run: npm run build
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./backend/coverage/lcov.info
+          flags: backend
+          fail_ci_if_error: false
+
+  frontend-build:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: npm ci --legacy-peer-deps
+
+      - name: Build frontend
+        working-directory: ./frontend
+        env:
+          VITE_API_BASE: http://localhost:3000
+        run: npm run build
+
+  e2e-tests:
+    name: End-to-End Tests
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-build]
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Python dependencies
+        run: |
+          pip install requests colorama
+
+      - name: Setup Node.js (for KMS key generation)
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Start services with Docker Compose
+        run: |
+          export KMS_MASTER_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('base64'))")
+          cd infra
+          docker-compose up -d
+          sleep 30
+
+      - name: Check service health
+        run: |
+          curl -f http://localhost:3000/health || exit 1
+          docker ps
+
+      - name: Run E2E tests
+        run: |
+          chmod +x run-e2e-test.sh
+          ./run-e2e-test.sh
+
+      - name: Upload E2E test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: e2e-test-results
+          path: |
+            test-output.log
+            test-results.xml
+
+      - name: View Docker logs on failure
+        if: failure()
+        run: |
+          docker logs infra-backend-1
+          docker logs infra-db-1
+          docker logs infra-keycloak-1
+
+      - name: Cleanup
+        if: always()
+        run: |
+          cd infra
+          docker-compose down -v
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Run npm audit (Backend)
+        working-directory: ./backend
+        run: npm audit --audit-level=moderate || true
+
+      - name: Run npm audit (Frontend)
+        working-directory: ./frontend
+        run: npm audit --audit-level=moderate || true
