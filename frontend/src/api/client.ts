@@ -26,6 +26,13 @@ function processQueue(error: any, token: string | null = null) {
   refreshQueue = []
 }
 
+// Helper function to sleep (for retry delay)
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
+// Retry config for 429 rate limit errors
+const MAX_RETRY_ATTEMPTS = 3
+const RETRY_DELAY = 1000 // 1 second base delay
+
 api.interceptors.request.use((config: AxiosRequestConfig) => {
   const token = localStorage.getItem('access_token')
   const tenant = localStorage.getItem('tenant_id')
@@ -38,7 +45,35 @@ api.interceptors.request.use((config: AxiosRequestConfig) => {
 api.interceptors.response.use(
   r => r,
   async (error: AxiosError) => {
-    const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean }
+    const originalRequest = error.config as AxiosRequestConfig & { 
+      _retry?: boolean
+      _retryCount?: number 
+    }
+    
+    // Handle 429 Rate Limit errors with retry
+    if (error.response?.status === 429) {
+      const retryCount = originalRequest._retryCount || 0
+      
+      if (retryCount < MAX_RETRY_ATTEMPTS) {
+        originalRequest._retryCount = retryCount + 1
+        
+        // Get Retry-After header if available, otherwise use exponential backoff
+        const retryAfter = error.response.headers['retry-after']
+        const delayMs = retryAfter 
+          ? parseInt(retryAfter) * 1000 
+          : RETRY_DELAY * Math.pow(2, retryCount) // Exponential backoff: 1s, 2s, 4s
+        
+        console.log(`Rate limited. Retrying after ${delayMs}ms (attempt ${retryCount + 1}/${MAX_RETRY_ATTEMPTS})`)
+        
+        await sleep(delayMs)
+        return api(originalRequest)
+      } else {
+        console.error('Max retry attempts reached for rate limit')
+        return Promise.reject(new Error('Too many requests. Please try again later.'))
+      }
+    }
+    
+    // Handle 401 Unauthorized errors (existing logic)
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true
 
