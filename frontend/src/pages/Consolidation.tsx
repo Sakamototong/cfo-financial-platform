@@ -16,7 +16,7 @@ export default function Consolidation() {
     setLoading(true)
     setResult(null)
 
-    const ids = selectedIds.map(s=>s.trim()).filter(Boolean)
+    const ids = selectedIds.map(s => String(s || '').trim()).filter(Boolean)
     if (ids.length === 0) {
       setError('Please select at least one statement')
       setLoading(false)
@@ -103,9 +103,10 @@ export default function Consolidation() {
                       className="form-check-input"
                       type="checkbox"
                       id={`stmt-${s.id}`}
-                      checked={selectedIds.includes(s.id)}
+                      checked={selectedIds.includes(String(s.id))}
                       onChange={e => {
-                        setSelectedIds(prev => e.target.checked ? [...prev, s.id] : prev.filter(id => id !== s.id))
+                        const idStr = String(s.id)
+                        setSelectedIds(prev => e.target.checked ? [...prev, idStr] : prev.filter(id => id !== idStr))
                       }}
                     />
                     <label className="form-check-label" htmlFor={`stmt-${s.id}`}>
