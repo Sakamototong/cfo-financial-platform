@@ -78,11 +78,11 @@ export default function BudgetVsActualReport() {
   const fetchStatements = async () => {
     try {
       const response = await api.get('/financial/statements');
-      // Only show actual statements
-      const actualStatements = response.data.filter(
-        (s: Statement) => s.scenario === 'actual'
+      // Show all statements (filter by approved/locked status)
+      const availableStatements = response.data.filter(
+        (s: Statement) => s.status === 'approved' || s.status === 'locked'
       );
-      setStatements(actualStatements);
+      setStatements(availableStatements);
     } catch (err: any) {
       console.error('Error fetching statements:', err);
     }
@@ -171,7 +171,7 @@ export default function BudgetVsActualReport() {
             <option value="">-- Choose Statement --</option>
             {statements.map((statement) => (
               <option key={statement.id} value={statement.id}>
-                {statement.statement_type} - {statement.period_start} to {statement.period_end}
+                {statement.statement_type} {statement.period_start} ({statement.scenario})
               </option>
             ))}
           </select>

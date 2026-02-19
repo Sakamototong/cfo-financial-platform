@@ -1831,8 +1831,41 @@ button:disabled { opacity: 0.6; cursor: not-allowed }
 .form-row input, .form-row select, .form-row textarea { padding: 8px; border: 1px solid #ddd; border-radius: 6px; min-width: 160px; }
 .line-grid { display: grid; grid-template-columns: 150px 1fr 120px 80px 40px; gap: 8px; align-items: center; }
 .line-item { padding: 6px 0; }
-.btn { padding: 8px 12px; border-radius: 6px; border: 1px solid #cfcfcf; background: #fff; transition: all 0.2s; cursor: pointer; font-size: 14px; font-weight: 500; }
+.btn { padding: 8px 12px; border-radius: 6px; border: 1px solid #cfcfcf; background: #fff; color: #333; transition: all 0.2s; cursor: pointer; font-size: 14px; font-weight: 500; }
 .btn:hover { background: #f9fafb; border-color: #a0a0a0; }
+.btn-default, .btn.btn-default { background: #f8f9fa; color: #333; border-color: #ced4da; }
+.btn-default:hover, .btn.btn-default:hover { background: #e9ecef; color: #212529; }
+
+/* Fix AdminLTE card-header float/clearfix blocking clicks on .card-tools buttons */
+.card-header {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+}
+.card-header::after {
+  display: none !important;
+}
+.card-header > .card-title {
+  float: none !important;
+  flex: 1;
+}
+.card-header > .card-tools {
+  float: none !important;
+  position: relative;
+  z-index: 2;
+  margin-right: 0;
+}
+
+/* Fix AdminLTE sidebar-overlay blocking all clicks on content area */
+.sidebar-overlay {
+  pointer-events: none !important;
+  visibility: hidden !important;
+}
+.sidebar-open .sidebar-overlay {
+  pointer-events: none !important;
+  visibility: hidden !important;
+}
+
 .btn.primary, .btn.btn-primary { background: linear-gradient(135deg, #727cf5 0%, #5a67d8 100%); color: #fff; border-color: transparent; }
 .btn.primary:hover, .btn.btn-primary:hover { background: linear-gradient(135deg, #5a67d8 0%, #4c51bf 100%); box-shadow: 0 4px 12px rgba(114, 124, 245, 0.3); }
 .btn.btn-outline { background: transparent; border-color: #727cf5; color: #727cf5; }

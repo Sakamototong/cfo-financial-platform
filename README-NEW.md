@@ -199,13 +199,20 @@ npm start
 
 ใช้ username/password เหล่านี้สำหรับทดสอบ:
 
-| Role | Username | Password | Access |
-|------|----------|----------|--------|
-| **Super Admin** | `kc-superadmin` | `Secret123!` | System-wide |
-| **Company Admin** | `demo-admin@testco.local` | `Secret123!` | Tenant: testco |
-| **Analyst** | `demo-analyst@testco.local` | `Secret123!` | Tenant: testco |
-| **Viewer** | `demo-viewer@testco.local` | `Secret123!` | Tenant: testco |
-| **Admin** | `admin` | `admin` | General |
+| Role | Username | Password | Tenant / Access |
+|------|----------|----------|-----------------|
+| **Super Admin** | `superadmin` หรือ `superadmin@system.local` | `Secret123!` | System-wide (ทุก Tenant) |
+| **Company Admin** | `admin@admin.local` | `Secret123!` | Tenant: admin |
+| **Analyst** | `analyst@admin.local` | `Secret123!` | Tenant: admin |
+| **Viewer** | `viewer@admin.local` | `Secret123!` | Tenant: admin |
+| **ACME Admin** | `admin@acmecorp.local` | `Secret123!` | Tenant: acme-corp |
+
+### Tenants ที่มีในระบบ
+
+| Tenant ID | ชื่อบริษัท |
+|-----------|------------|
+| `admin` | Admin Tenant |
+| `acme-corp` | ACME Corporation |
 
 ---
 
@@ -402,8 +409,23 @@ project-cfo-poc-4/
 - [ ] Multi-language support
 
 ### Known Issues
-- ⚠️ Financial Module: Schema mismatch (being fixed)
+- ⚠️ Financial Module: Schema mismatch (approval_requests column names)
 - ⚠️ Privacy/Audit modules: Disabled due to TypeORM issues
+
+---
+
+## 🐛 Bug Fixes (Recent)
+
+### v1.0.1 — February 19, 2026
+
+| # | ปัญหา | สาเหตุ | สิ่งที่แก้ไข |
+|---|-------|--------|-------------|
+| 1 | **Role ไม่เสถียร** — refresh หน้าแล้ว role กลับเป็น viewer | DB connection leak ใน `SystemUsersService` (13/14 methods ไม่ `release()` connection) | เขียน `systemQuery()` helper ที่มี `try/finally { client.release() }` ทุก method |
+| 2 | **Connection pool หมด** → timeout ทุก request | Pool max=20 + timeout=2s ทำให้หมดเร็วมาก | เพิ่ม pool: system max 20→30, tenant max 10→15, timeout 2s→10s |
+| 3 | **Super Admin เห็นเมนูผิด** | `/auth/me` query DB ซ้ำซ้อน (JwtAuthGuard ก็ query แล้ว) | ใช้ `req.user.roles` จาก JwtAuthGuard แทน (มี in-memory cache 60s) |
+| 4 | **เปลี่ยนบริษัทไม่ได้** — CompanySelector ซ่อน dropdown | `/my-tenants` เช็คแค่ `username==='admin'`, super admin ไม่ได้รับทุก tenant | เพิ่มเช็ค `roles.includes('super_admin')` → return ทุก tenant |
+| 5 | **Default tenant ผิด** | Login.tsx ตั้ง default tenant เป็น `testco` ซึ่งไม่มีในระบบ | เปลี่ยนเป็น `admin` |
+| 6 | **Frontend ยังแสดง role เก่า** | `UserContext` อ่าน role จาก localStorage (stale cache) | ลบ init จาก localStorage + เพิ่ม retry 2 ครั้งถ้า API fail |
 
 [See issues →](USABILITY-IMPROVEMENTS.md)
 
@@ -433,4 +455,4 @@ npm run logs        # View all logs
 
 **Made with ❤️ for CFOs and Financial Analysts**
 
-*Last Updated: February 15, 2026*
+*Last Updated: February 19, 2026*

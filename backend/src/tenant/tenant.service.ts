@@ -353,8 +353,8 @@ export class TenantService {
       CREATE TABLE IF NOT EXISTS projections (
         id VARCHAR(100) PRIMARY KEY,
         tenant_id VARCHAR(255),
-        base_statement_id UUID,
-        scenario_id UUID,
+        base_statement_id VARCHAR(100),
+        scenario_id VARCHAR(100),
         projection_periods INTEGER,
         period_type VARCHAR(20),
         statement_count INTEGER,
@@ -407,7 +407,12 @@ export class TenantService {
         return null;
       }
     }
-    const decryptedPassword = await this.kms.decrypt(rec.encryptedPassword);
+    let decryptedPassword = '***';
+    try {
+      decryptedPassword = await this.kms.decrypt(rec.encryptedPassword);
+    } catch (err) {
+      this.logger.warn('Could not decrypt tenant password (ephemeral key mismatch)', { tenantId: id });
+    }
     return {
       id: rec.id,
       name: rec.name,

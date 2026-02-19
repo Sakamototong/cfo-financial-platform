@@ -23,32 +23,40 @@ export default function Login(){
       }
       localStorage.setItem('access_token', token)
       localStorage.setItem('refresh_token', refresh)
-      
-      // Set default tenant (admin for demo mode, testco for real users)
-      const defaultTenant = username === 'admin' ? 'admin' : 'testco'
-      localStorage.setItem('tenant_id', defaultTenant)
-      
+
+      // Temporarily set tenant to 'admin' so the api interceptor has a valid header
+      localStorage.setItem('tenant_id', 'admin')
+
       // Fetch user profile to get role
       try {
         const userRes = await api.get('/auth/me')
-        console.log('[Login] Full /auth/me response:', userRes)
-        console.log('[Login] userRes.data:', userRes.data)
-        console.log('[Login] userRes.data.data:', userRes.data?.data)
         const userData = userRes.data?.data || userRes.data
-        console.log('[Login] Parsed userData:', userData)
-        console.log('[Login] Role:', userData.role)
         if (userData.role) {
           localStorage.setItem('user_role', userData.role)
           localStorage.setItem('user_email', userData.email || username)
-          console.log('[Login] User role set to localStorage:', userData.role)
         }
       } catch (err) {
         console.error('[Login] Could not fetch user profile:', err)
-        // Default role for admin
         if (username === 'admin') {
           localStorage.setItem('user_role', 'admin')
           localStorage.setItem('user_email', 'admin')
         }
+      }
+
+      // Auto-detect the user's primary tenant
+      try {
+        const tenantsRes = await api.get('/my-tenants')
+        const tenantList: { id: string; name: string }[] = tenantsRes.data || []
+        if (tenantList.length > 0) {
+          // For super_admin keep 'admin' as default; for everyone else pick first result
+          const role = localStorage.getItem('user_role')
+          const isSuperAdmin = role === 'super_admin' || role === 'admin'
+          if (!isSuperAdmin) {
+            localStorage.setItem('tenant_id', tenantList[0].id)
+          }
+        }
+      } catch (err) {
+        console.error('[Login] Could not fetch tenant list:', err)
       }
       
       console.log('Login successful, redirecting to dashboard...')

@@ -249,23 +249,22 @@ export class ReportsService {
       endDate,
     });
 
-    // Get all actual statements in date range
+    // Get all statements in date range (any scenario)
     const statementsResult = await this.db.queryTenant(
       tenantId,
-      `SELECT s.id, s.period_start, s.period_end, l.line_name, l.amount
+      `SELECT s.id, s.period_start, s.period_end, s.scenario, l.line_name, l.amount
        FROM financial_statements s
        JOIN financial_line_items l ON l.statement_id = s.id
        WHERE s.tenant_id = $1 
          AND l.line_code = $2
          AND s.period_start >= $3
          AND s.period_end <= $4
-         AND s.scenario = 'actual'
        ORDER BY s.period_start`,
       [tenantId, lineCode, startDate, endDate],
     );
 
     if (statementsResult.rows.length === 0) {
-      throw new Error('No data found for trend analysis');
+      throw new Error(`No data found for line code "${lineCode}" in the date range. Please ensure financial statements with this line item exist.`);
     }
 
     const lineName = statementsResult.rows[0].line_name;

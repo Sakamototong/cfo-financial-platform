@@ -18,6 +18,10 @@ export default function TenantDetail() {
   const [users, setUsers] = useState<TenantUser[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [showAddUser, setShowAddUser] = useState(false)
+  const [availableUsers, setAvailableUsers] = useState<any[]>([])
+  const [selectedUser, setSelectedUser] = useState('')
+  const [selectedRole, setSelectedRole] = useState('analyst')
 
   useEffect(() => {
     loadTenant()
@@ -43,147 +47,278 @@ export default function TenantDetail() {
     }
   }
 
+  const loadAvailableUsers = async () => {
+    try {
+      const response = await api.get('/super-admin/system-users')
+      const allUsers = response.data.users || []
+      
+      // Filter out users already in this tenant
+      const currentUserIds = users.map(u => u.user_id)
+      const available = allUsers.filter((u: any) => !currentUserIds.includes(u.id))
+      
+      setAvailableUsers(available)
+    } catch (err: any) {
+      console.error('Failed to load available users:', err)
+    }
+  }
+
+  const handleAddUser = async () => {
+    if (!selectedUser) {
+      alert('Please select a user')
+      return
+    }
+
+    try {
+      await api.post(`/super-admin/users/${selectedUser}/tenants/${id}`, {
+        role: selectedRole
+      })
+      
+      setShowAddUser(false)
+      setSelectedUser('')
+      setSelectedRole('analyst')
+      await loadTenant()
+      alert('User added successfully')
+    } catch (err: any) {
+      alert('Failed to add user: ' + (err.response?.data?.message || err.message))
+    }
+  }
+
+  const handleShowAddUser = async () => {
+    setShowAddUser(true)
+    await loadAvailableUsers()
+  }
+
   const handleBack = () => {
     navigate('/super-admin')
   }
 
   if (loading) {
     return (
-      <div style={{ padding: 20 }}>
-        <h1>Tenant Details</h1>
-        <p>Loading...</p>
+      <div className="card">
+        <div className="card-body">
+          <div className="d-flex justify-content-center">
+            <div className="spinner-border text-primary" role="status">
+              <span className="visually-hidden">Loading...</span>
+            </div>
+          </div>
+        </div>
       </div>
     )
   }
 
   if (error || !tenant) {
     return (
-      <div style={{ padding: 20 }}>
-        <h1>Tenant Details</h1>
-        <div style={{ color: 'red', padding: 20, background: '#fee', borderRadius: 4 }}>
-          {error || 'Tenant not found'}
+      <>
+        <div className="card mb-3">
+          <div className="card-header">
+            <h3 className="card-title">
+              <i className="bi bi-building me-2"></i>
+              Tenant Details
+            </h3>
+          </div>
         </div>
-        <button onClick={handleBack} className="btn" style={{ marginTop: 20 }}>
-          ← Back to Dashboard
-        </button>
-      </div>
+        <div className="card">
+          <div className="card-body">
+            <div className="alert alert-danger">
+              <i className="bi bi-exclamation-triangle me-2"></i>
+              {error || 'Tenant not found'}
+            </div>
+            <button onClick={handleBack} className="btn btn-secondary">
+              <i className="bi bi-arrow-left me-1"></i>
+              Back to Dashboard
+            </button>
+          </div>
+        </div>
+      </>
     )
   }
 
   return (
-    <div className="page-container">
-      <button onClick={handleBack} className="btn ghost" style={{ marginBottom: 20 }}>
-        ← Back to Dashboard
-      </button>
-
-      <div className="page-header">
-        <div>
-          <h1>{tenant.name}</h1>
-          <p style={{ color: '#666', marginTop: 5, fontFamily: 'monospace' }}>
-            ID: {tenant.id}
+    <>
+      {/* Page Header */}
+      <div className="card mb-3">
+        <div className="card-header">
+          <h3 className="card-title">
+            <i className="bi bi-building me-2"></i>
+            {tenant.name}
+          </h3>
+          <div className="card-tools">
+            <button onClick={handleBack} className="btn btn-secondary btn-sm">
+              <i className="bi bi-arrow-left me-1"></i>
+              Back to Dashboard
+            </button>
+          </div>
+        </div>
+        <div className="card-body">
+          <p className="text-muted mb-0">
+            <strong>ID:</strong> <code>{tenant.id}</code>
           </p>
         </div>
       </div>
 
       {/* Tenant Info Card */}
-      <div className="card" style={{ marginBottom: 20 }}>
-        <h2>Tenant Information</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 20 }}>
-          <div>
-            <label style={{ fontWeight: 500, color: '#666', fontSize: 14 }}>Database Name</label>
-            <p style={{ margin: '5px 0 0', fontFamily: 'monospace', fontSize: 14 }}>
-              {tenant.db_name || 'N/A'}
-            </p>
-          </div>
-          
-          <div>
-            <label style={{ fontWeight: 500, color: '#666', fontSize: 14 }}>Created</label>
-            <p style={{ margin: '5px 0 0' }}>
-              {tenant.created_at ? new Date(tenant.created_at).toLocaleString() : 'N/A'}
-            </p>
-          </div>
-          
-          <div>
-            <label style={{ fontWeight: 500, color: '#666', fontSize: 14 }}>Total Users</label>
-            <p style={{ margin: '5px 0 0', fontSize: 20, fontWeight: 500, color: '#2563eb' }}>
-              {users.length}
-            </p>
-          </div>
-          
-          <div>
-            <label style={{ fontWeight: 500, color: '#666', fontSize: 14 }}>Active Users</label>
-            <p style={{ margin: '5px 0 0', fontSize: 20, fontWeight: 500, color: '#10b981' }}>
-              {users.filter(u => u.is_active).length}
-            </p>
+      <div className="card mb-3">
+        <div className="card-header">
+          <h3 className="card-title">
+            <i className="bi bi-info-circle me-2"></i>
+            Tenant Information
+          </h3>
+        </div>
+        <div className="card-body">
+          <div className="row">
+            <div className="col-md-6 mb-3">
+              <label className="form-label fw-bold text-muted">Database Name</label>
+              <p className="mb-0"><code>{tenant.db_name || 'N/A'}</code></p>
+            </div>
+            
+            <div className="col-md-6 mb-3">
+              <label className="form-label fw-bold text-muted">Created</label>
+              <p className="mb-0">
+                {tenant.created_at ? new Date(tenant.created_at).toLocaleString() : 'N/A'}
+              </p>
+            </div>
+            
+            <div className="col-md-6">
+              <label className="form-label fw-bold text-muted">Total Users</label>
+              <p className="mb-0 fs-4 text-primary fw-bold">
+                {users.length}
+              </p>
+            </div>
+            
+            <div className="col-md-6">
+              <label className="form-label fw-bold text-muted">Active Users</label>
+              <p className="mb-0 fs-4 text-success fw-bold">
+                {users.filter(u => u.is_active).length}
+              </p>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Users Table */}
       <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h2 style={{ margin: 0 }}>Users</h2>
-          <button className="btn primary" style={{ fontSize: 14 }}>
-            + Add User
-          </button>
+        <div className="card-header">
+          <h3 className="card-title">
+            <i className="bi bi-people me-2"></i>
+            Users
+          </h3>
+          <div className="card-tools">
+            <button 
+              className="btn btn-primary btn-sm"
+              onClick={handleShowAddUser}
+            >
+              <i className="bi bi-plus-circle me-1"></i>
+              Add User
+            </button>
+          </div>
         </div>
-
-        {users.length === 0 ? (
-          <p style={{ color: '#666', textAlign: 'center', padding: 40 }}>
-            No users in this tenant yet.
-          </p>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ borderBottom: '2px solid #e5e7eb', textAlign: 'left' }}>
-                <th style={{ padding: 12 }}>Email</th>
-                <th style={{ padding: 12 }}>Full Name</th>
-                <th style={{ padding: 12 }}>Role</th>
-                <th style={{ padding: 12 }}>Status</th>
-                <th style={{ padding: 12 }}>Joined</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map(user => (
-                <tr key={user.user_id} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                  <td style={{ padding: 12, fontFamily: 'monospace', fontSize: 13 }}>
-                    {user.email}
-                  </td>
-                  <td style={{ padding: 12 }}>{user.full_name}</td>
-                  <td style={{ padding: 12 }}>
-                    <span style={{
-                      padding: '4px 12px',
-                      borderRadius: 12,
-                      fontSize: 13,
-                      fontWeight: 500,
-                      background: user.tenant_role === 'admin' ? '#dbeafe' : 
-                                 user.tenant_role === 'analyst' ? '#fef3c7' : '#f3f4f6',
-                      color: user.tenant_role === 'admin' ? '#1e40af' : 
-                             user.tenant_role === 'analyst' ? '#92400e' : '#374151'
-                    }}>
-                      {user.tenant_role}
-                    </span>
-                  </td>
-                  <td style={{ padding: 12 }}>
-                    <span style={{
-                      padding: '4px 12px',
-                      borderRadius: 12,
-                      fontSize: 13,
-                      background: user.is_active ? '#d1fae5' : '#fee2e2',
-                      color: user.is_active ? '#065f46' : '#991b1b'
-                    }}>
-                      {user.is_active ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td style={{ padding: 12, color: '#666', fontSize: 14 }}>
-                    {new Date(user.joined_at).toLocaleDateString()}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        
+        {/* Add User Form */}
+        {showAddUser && (
+          <div className="card-body border-bottom">
+            <h5 className="mb-3">Add User to Tenant</h5>
+            <div className="row g-3">
+              <div className="col-md-6">
+                <label className="form-label">Select User</label>
+                <select 
+                  className="form-select"
+                  value={selectedUser}
+                  onChange={e => setSelectedUser(e.target.value)}
+                >
+                  <option value="">-- Choose a user --</option>
+                  {availableUsers.map(user => (
+                    <option key={user.id} value={user.id}>
+                      {user.full_name} ({user.email})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              <div className="col-md-6">
+                <label className="form-label">Role</label>
+                <select 
+                  className="form-select"
+                  value={selectedRole}
+                  onChange={e => setSelectedRole(e.target.value)}
+                >
+                  <option value="admin">Admin</option>
+                  <option value="analyst">Analyst</option>
+                  <option value="viewer">Viewer</option>
+                </select>
+              </div>
+              
+              <div className="col-12">
+                <button 
+                  className="btn btn-primary btn-sm me-2"
+                  onClick={handleAddUser}
+                >
+                  <i className="bi bi-check-circle me-1"></i>
+                  Add User
+                </button>
+                <button 
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    setShowAddUser(false)
+                    setSelectedUser('')
+                    setSelectedRole('analyst')
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
         )}
+        
+        <div className="card-body">
+          {users.length === 0 ? (
+            <div className="text-center text-muted py-5">
+              <i className="bi bi-inbox" style={{ fontSize: '3rem' }}></i>
+              <p className="mt-3">No users in this tenant yet.</p>
+            </div>
+          ) : (
+            <div className="table-responsive">
+              <table className="table table-striped table-hover">
+                <thead>
+                  <tr>
+                    <th>Email</th>
+                    <th>Full Name</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Joined</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map(user => (
+                    <tr key={user.user_id}>
+                      <td><code>{user.email}</code></td>
+                      <td>{user.full_name}</td>
+                      <td>
+                        <span className={`badge ${
+                          user.tenant_role === 'admin' ? 'bg-primary' : 
+                          user.tenant_role === 'analyst' ? 'bg-info' : 'bg-secondary'
+                        }`}>
+                          {user.tenant_role}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`badge ${
+                          user.is_active ? 'bg-success' : 'bg-danger'
+                        }`}>
+                          {user.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td className="text-muted">
+                        {new Date(user.joined_at).toLocaleDateString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   )
 }

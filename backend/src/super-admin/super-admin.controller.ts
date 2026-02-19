@@ -22,6 +22,109 @@ export class SuperAdminController {
 
   // ==================== System Users Management ====================
 
+  @Get('system-users')
+  @ApiOperation({ summary: 'List all system users with tenant memberships' })
+  async listSystemUsers(@Query('role') role?: string, @Query('search') search?: string) {
+    if (search) {
+      const users = await this.systemUsersService.searchUsers(search);
+      const memberships: Record<string, any[]> = {};
+      
+      // Get memberships for each user
+      for (const user of users) {
+        const userMemberships = await this.systemUsersService.getUserTenants(user.id);
+        const allTenants = await this.tenantService.listTenants();
+        
+        memberships[user.id] = userMemberships.map(m => {
+          const tenant = allTenants.find(t => t.id === m.tenant_id);
+          return {
+            ...m,
+            tenant_name: tenant?.name || m.tenant_id,
+          };
+        });
+      }
+      
+      return { users, memberships };
+    }
+    
+    const filters: any = {};
+    if (role && (role === 'super_admin' || role === 'system_user')) {
+      filters.role = role;
+    }
+    
+    const users = await this.systemUsersService.listSystemUsers(filters);
+    const memberships: Record<string, any[]> = {};
+    const allTenants = await this.tenantService.listTenants();
+    
+    // Get memberships for each user
+    for (const user of users) {
+      const userMemberships = await this.systemUsersService.getUserTenants(user.id);
+      memberships[user.id] = userMemberships.map(m => {
+        const tenant = allTenants.find(t => t.id === m.tenant_id);
+        return {
+          ...m,
+          tenant_name: tenant?.name || m.tenant_id,
+        };
+      });
+    }
+    
+    return { users, memberships };
+  }
+
+  @Post('system-users')
+  @ApiOperation({ summary: 'Create a new system user' })
+  async createSystemUser(@Body() data: {
+    email: string;
+    full_name: string;
+    role: 'super_admin' | 'system_user';
+    password: string;
+  }) {
+    // Create user in system_users table
+    const user = await this.systemUsersService.createSystemUser({
+      email: data.email,
+      full_name: data.full_name,
+      role: data.role,
+    });
+
+    // TODO: Create user in Keycloak with password
+    // For now, return the user
+    return user;
+  }
+
+  @Put('system-users/:id/role')
+  @ApiOperation({ summary: 'Update system user role' })
+  async updateSystemUserRole(
+    @Param('id') id: string,
+    @Body() data: { role: 'super_admin' | 'system_user' }
+  ) {
+    return this.systemUsersService.updateSystemUser(id, { role: data.role });
+  }
+
+  @Put('system-users/:id/status')
+  @ApiOperation({ summary: 'Update system user active status' })
+  async updateSystemUserStatus(
+    @Param('id') id: string,
+    @Body() data: { is_active: boolean }
+  ) {
+    return this.systemUsersService.updateSystemUser(id, { is_active: data.is_active });
+  }
+
+  @Delete('system-users/:id')
+  @ApiOperation({ summary: 'Delete system user' })
+  async deleteSystemUser(@Param('id') id: string) {
+    // Remove from all tenant memberships first
+    const memberships = await this.systemUsersService.getUserTenants(id);
+    for (const membership of memberships) {
+      await this.systemUsersService.removeUserFromTenant(id, membership.tenant_id);
+    }
+    
+    // Delete from system_users table
+    await this.systemUsersService.deleteSystemUser(id);
+    
+    // TODO: Delete from Keycloak
+    
+    return { success: true };
+  }
+
   @Get('users')
   async listAllUsers(@Query('role') role?: string, @Query('search') search?: string) {
     if (search) {

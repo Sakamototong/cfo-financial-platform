@@ -5,14 +5,20 @@ import { useUser } from './UserContext'
 const ROLE_ORDER: Record<string, number> = {
   viewer: 1,
   analyst: 2,
+  finance_user: 3,
+  finance_manager: 3,
   admin: 3,
+  tenant_admin: 3,
   super_admin: 4,
 }
 
 const ROLE_LABELS: Record<string, string> = {
   viewer: 'Viewer',
   analyst: 'Analyst',
+  finance_user: 'Finance User',
+  finance_manager: 'Finance Manager',
   admin: 'Admin',
+  tenant_admin: 'Tenant Admin',
   super_admin: 'Super Admin',
 }
 
@@ -22,7 +28,7 @@ export function hasMinRole(userRole: string | undefined, minRole: string): boole
 }
 
 interface RequireRoleProps {
-  role: 'super_admin' | 'admin' | 'analyst' | 'viewer'
+  role: 'super_admin' | 'admin' | 'tenant_admin' | 'finance_manager' | 'finance_user' | 'analyst' | 'viewer'
   children: React.ReactNode
   /** If true, render nothing instead of Access Denied (for hiding UI elements) */
   silent?: boolean

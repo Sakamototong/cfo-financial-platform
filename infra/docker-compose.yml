@@ -9,6 +9,24 @@ services:
       - ./init:/docker-entrypoint-initdb.d
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save "" --appendonly no --maxmemory 128mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
 
   keycloak:
     image: quay.io/keycloak/keycloak:21.1.1
@@ -33,13 +51,24 @@ services:
       KEYCLOAK_HOST: http://keycloak:8080
       KEYCLOAK_CLIENT_ID: cfo-client
       KEYCLOAK_REALM: master
+      # Redis for rate limiting and caching
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       # OpenAI API key for Swagger assistant (set locally; do NOT commit real keys)
       OPENAI_API_KEY: ${OPENAI_API_KEY}
     depends_on:
-      - db
-      - keycloak
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     ports:
       - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   frontend:
     build:
@@ -51,3 +80,5 @@ services:
         VITE_API_BASE: http://localhost:3000
     ports:
       - "8080:80"
+    depends_on:
+      - backend

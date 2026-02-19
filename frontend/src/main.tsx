@@ -20,6 +20,7 @@ import Profile from './pages/Profile'
 import Tables from './pages/Tables'
 import SuperAdminDashboard from './pages/SuperAdminDashboard'
 import TenantDetail from './pages/TenantDetail'
+import SystemUsers from './pages/SystemUsers'
 import PrivacyPolicy from './pages/PrivacyPolicy'
 import DataRequests from './pages/DataRequests'
 import Billing from './pages/Billing'
@@ -145,6 +146,7 @@ function ConditionalLayout() {
         {/* Super Admin only */}
         <Route path="/super-admin" element={<ProtectedRoute><RequireRole role="super_admin"><SuperAdminDashboard/></RequireRole></ProtectedRoute>} />
         <Route path="/super-admin/tenants/:id" element={<ProtectedRoute><RequireRole role="super_admin"><TenantDetail/></RequireRole></ProtectedRoute>} />
+        <Route path="/super-admin/system-users" element={<ProtectedRoute><RequireRole role="super_admin"><SystemUsers/></RequireRole></ProtectedRoute>} />
       </Routes>
     </AdminLTELayout>
   )

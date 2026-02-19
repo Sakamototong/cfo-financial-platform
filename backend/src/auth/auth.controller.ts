@@ -96,68 +96,63 @@ export class AuthController {
   @Get('me')
   @UseGuards(JwtAuthGuard)
   async me(@Request() req: any) {
-    // Get user info from JWT token
+    // JwtAuthGuard already enriched req.user with roles from system_users (cached)
     const jwtUser = req.user || { sub: 'anonymous', preferred_username: 'anonymous' };
     const username = jwtUser.preferred_username || jwtUser.sub || 'anonymous';
     const email = jwtUser.email || username;
-    
-    console.log('[AuthController /auth/me] JWT User:', jwtUser);
-    console.log('[AuthController /auth/me] Email to check:', email);
-    
-    // Check if user is a super admin first
-    try {
-      console.log('[AuthController /auth/me] Checking system_users for email:', email);
-      const systemUser = await this.systemUsersService.getSystemUserByEmail(email);
-      console.log('[AuthController /auth/me] System user found:', systemUser);
-      
-      if (systemUser && systemUser.role === 'super_admin' && systemUser.is_active) {
-        // Update last login
-        await this.systemUsersService.updateLastLogin(systemUser.id);
-        
-        console.log('[AuthController /auth/me] Returning super_admin role');
-        return {
-          success: true,
-          data: {
-            id: systemUser.id,
-            email: systemUser.email,
-            username: systemUser.email,
-            full_name: systemUser.full_name,
-            role: 'super_admin',
-            is_active: systemUser.is_active,
-            is_super_admin: true,
-            ...jwtUser
-          }
-        };
-      }
-      console.log('[AuthController /auth/me] System user not super_admin or not active');
-    } catch (err) {
-      console.error('[AuthController /auth/me] Error checking system user:', err);
-      // If system user check fails, continue with tenant-level check
+    const roles: string[] = jwtUser.roles || [];
+
+    // If JwtAuthGuard already detected super_admin, use that (no extra DB query)
+    if (roles.includes('super_admin')) {
+      // Optionally fetch display name from cache (fast, no pool overhead)
+      let fullName = email;
+      try {
+        const su = await this.systemUsersService.getSystemUserByEmail(email) 
+                || await this.systemUsersService.getSystemUserByEmail(username);
+        if (su) {
+          fullName = su.full_name || email;
+          // Fire-and-forget last login update
+          this.systemUsersService.updateLastLogin(su.id).catch(() => {});
+        }
+      } catch (_) { /* cache miss is fine */ }
+
+      return {
+        success: true,
+        data: {
+          email,
+          username: email,
+          full_name: fullName,
+          role: 'super_admin',
+          is_active: true,
+          is_super_admin: true,
+          ...jwtUser,
+        },
+      };
     }
-    
+
     // For demo mode (admin/admin), return admin role
     if (username === 'admin') {
-      return { 
-        success: true, 
-        data: { 
+      return {
+        success: true,
+        data: {
           email: 'admin',
           username: 'admin',
           role: 'admin',
           is_super_admin: false,
-          ...jwtUser 
-        } 
+          ...jwtUser,
+        },
       };
     }
-    
+
     // Try to find user in tenant database to get role
     try {
-      const tenantId = req.headers['x-tenant-id'] || 'testco';
+      const tenantId = req.headers['x-tenant-id'] || 'admin';
       const userResult = await this.db.queryTenant(
         tenantId,
         'SELECT id, email, full_name, role, is_active FROM users WHERE email = $1 LIMIT 1',
-        [email]
+        [email],
       );
-      
+
       if (userResult.rows.length > 0) {
         const dbUser = userResult.rows[0];
         return {
@@ -169,24 +164,24 @@ export class AuthController {
             full_name: dbUser.full_name,
             is_active: dbUser.is_active,
             is_super_admin: false,
-            ...jwtUser
-          }
+            ...jwtUser,
+          },
         };
       }
     } catch (err) {
       // If DB query fails, continue with JWT data only
     }
-    
+
     // Fallback: return JWT data without role
-    return { 
-      success: true, 
-      data: { 
-        email: email,
+    return {
+      success: true,
+      data: {
+        email,
         username: email,
-        role: 'viewer', // default role
+        role: 'viewer',
         is_super_admin: false,
-        ...jwtUser 
-      } 
+        ...jwtUser,
+      },
     };
   }
 }

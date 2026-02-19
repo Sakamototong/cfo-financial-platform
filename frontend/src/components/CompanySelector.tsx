@@ -25,18 +25,17 @@ export default function CompanySelector() {
           list = [{ id: 'admin', name: 'Default (admin)' }]
         }
         if (!mounted) return
-        // If a tenant is already selected but not present in the list,
-        // include it so the selector doesn't lose the selection.
-        if (tenantId && !list.find(t => t.id === tenantId)) {
-          list = [{ id: tenantId, name: tenantId }, ...list]
-        }
         setTenants(list)
-        // If no tenant selected yet, default to the first one and refresh profile
+        // If no tenant selected yet, default to the first one
         if (!tenantId && list.length > 0) {
           const defaultId = list[0].id
           setTenantId(defaultId)
-          // fire-and-forget; refreshCompanyProfile will also be triggered by the
-          // tenantId effect, but call explicitly to reduce race conditions
+          refreshCompanyProfile(defaultId).catch(() => {})
+        }
+        // If current tenant is not in the accessible list, switch to the first one
+        else if (tenantId && list.length > 0 && !list.find(t => t.id === tenantId)) {
+          const defaultId = list[0].id
+          setTenantId(defaultId)
           refreshCompanyProfile(defaultId).catch(() => {})
         }
       })

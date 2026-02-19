@@ -21,8 +21,8 @@ export default function AdminLTELayout({ children }: AdminLTELayoutProps) {
 
   // Role-based visibility
   const isSuperAdmin = role === 'super_admin'
-  const isAdmin = role === 'admin' || isSuperAdmin
-  const isAnalyst = role === 'analyst'
+  const isAdmin = role === 'admin' || role === 'tenant_admin' || role === 'finance_manager' || isSuperAdmin
+  const isAnalyst = role === 'analyst' || role === 'finance_user' || role === 'finance_manager' || isAdmin
   const canViewTenants = isAdmin
   const canViewUsers = isAdmin || isAnalyst
   const canEdit = isAdmin || isAnalyst
@@ -48,10 +48,16 @@ export default function AdminLTELayout({ children }: AdminLTELayoutProps) {
     // AdminLTE initialization will happen via the included scripts
     const body = document.body
     body.classList.add('layout-fixed', 'sidebar-expand-lg')
-    if (sidebarOpen) {
+    
+    // On small screens (<992px), sidebar-open creates a full-page overlay that blocks clicks
+    const isLargeScreen = window.innerWidth >= 992
+    if (sidebarOpen && isLargeScreen) {
       body.classList.add('sidebar-open')
     } else {
       body.classList.remove('sidebar-open')
+      if (!isLargeScreen) {
+        body.classList.remove('sidebar-open')
+      }
     }
   }, [sidebarOpen])
 
@@ -110,8 +116,8 @@ export default function AdminLTELayout({ children }: AdminLTELayoutProps) {
                   </p>
                 </li>
                 <li className="user-footer">
-                  <Link to="/profile" className="btn btn-default btn-flat">Profile</Link>
-                  <button onClick={handleLogout} className="btn btn-default btn-flat float-end">Sign out</button>
+                  <Link to="/profile" className="btn btn-secondary btn-flat">Profile</Link>
+                  <button onClick={handleLogout} className="btn btn-secondary btn-flat float-end">Sign out</button>
                 </li>
               </ul>
             </li>
@@ -335,7 +341,7 @@ export default function AdminLTELayout({ children }: AdminLTELayoutProps) {
           <div className="container-fluid">
             <div className="row">
               <div className="col-sm-6">
-                <h3 className="mb-0">{document.title || 'CFO Platform'}</h3>
+                <h3 className="mb-0">CFO Platform</h3>
               </div>
               <div className="col-sm-6">
                 <ol className="breadcrumb float-sm-end">

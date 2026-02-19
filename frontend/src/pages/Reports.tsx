@@ -14,12 +14,13 @@ export default function Reports() {
   const [startDate, setStartDate] = useState('2026-01-01')
   const [endDate, setEndDate] = useState('2026-12-31')
   const [lineCode, setLineCode] = useState('')
+  const [lineCodes, setLineCodes] = useState<Array<{code: string, name: string}>>([])
   const [result, setResult] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(()=>{
-    if (!tenantId) { setStatements([]); setProjections([]); return }
+    if (!tenantId) { setStatements([]); setProjections([]); setLineCodes([]); return }
     let mounted = true
     async function loadLists(){
       try{
@@ -28,6 +29,28 @@ export default function Reports() {
         if(!mounted) return
         setStatements(s.data || [])
         setProjections(p.data || [])
+        
+        // Extract unique line codes from statements
+        const stmtIds = s.data.map((stmt: any) => stmt.id)
+        if (stmtIds.length > 0) {
+          try {
+            const lineCodesMap = new Map<string, string>()
+            for (const stmt of s.data.slice(0, 5)) { // Check first 5 statements
+              const items = await api.get(`/financial/statements/${stmt.id}`)
+              if (items.data?.lineItems) {
+                items.data.lineItems.forEach((item: any) => {
+                  if (item.line_code && !lineCodesMap.has(item.line_code)) {
+                    lineCodesMap.set(item.line_code, item.line_name || item.line_code)
+                  }
+                })
+              }
+            }
+            const codes = Array.from(lineCodesMap.entries()).map(([code, name]) => ({ code, name }))
+            setLineCodes(codes)
+          } catch (e) {
+            console.error('Failed to load line codes', e)
+          }
+        }
       }catch(e){ 
         console.error('Failed to load lists', e)
       }
@@ -51,7 +74,7 @@ export default function Reports() {
         const res = await api.get('/reports/summary', { params: { type: 'PL', start_date: startDate, end_date: endDate } })
         setResult(res.data)
       } else if (reportType === 'trend') {
-        if (!lineCode) throw new Error('Enter line code')
+        if (!lineCode) throw new Error('Please select a line code for trend analysis')
         const res = await api.get('/reports/trend', { params: { line_code: lineCode, start_date: startDate, end_date: endDate } })
         setResult(res.data)
       }
@@ -198,14 +221,21 @@ export default function Reports() {
             {reportType === 'trend' && (
               <div className="row">
                 <div className="col-md-4 mb-3">
-                  <label className="form-label">Line Code</label>
-                  <input 
-                    type="text" 
-                    className="form-control" 
-                    placeholder="e.g. REV001" 
+                  <label className="form-label">Line Code <span className="text-danger">*</span></label>
+                  <select 
+                    className="form-select" 
                     value={lineCode} 
-                    onChange={e=>setLineCode(e.target.value)} 
-                  />
+                    onChange={e=>setLineCode(e.target.value)}
+                    required
+                  >
+                    <option value="">-- Select Line Code --</option>
+                    {lineCodes.map(lc => (
+                      <option key={lc.code} value={lc.code}>
+                        {lc.code} - {lc.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="form-text">Select the account line to analyze trends</div>
                 </div>
                 <div className="col-md-4 mb-3">
                   <label className="form-label">Start Date</label>

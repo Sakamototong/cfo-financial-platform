@@ -161,7 +161,7 @@ export default function Tenants() {
                   </button>
                   <button 
                     type="button"
-                    className="btn btn-default ms-2"
+                    className="btn btn-secondary ms-2"
                     onClick={() => {
                       setShowForm(false)
                       setError(null)

@@ -123,7 +123,7 @@ export default function Projections() {
                 <select className="form-select" value={scenarioId} onChange={e=>setScenarioId(e.target.value)} required>
                   <option value="">-- Choose scenario --</option>
                   {scenarios.map(s => (
-                    <option key={s.id} value={s.id}>{s.name || s.id}</option>
+                    <option key={s.id} value={s.id}>{s.scenario_name || s.name || `Scenario ${s.id}`}</option>
                   ))}
                 </select>
                 <div className="form-text">Applied growth rates and assumptions</div>

@@ -14,28 +14,96 @@ export class DatabaseService implements OnModuleDestroy, OnModuleInit {
       host: process.env.PG_HOST || 'localhost',
       port: Number(process.env.PG_PORT || 5432),
       database: 'postgres',
-      max: 20,
+      max: 30,
+      min: 2,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000
+      connectionTimeoutMillis: 10000,
+      // Query timeout: 30 seconds (prevent long-running queries)
+      query_timeout: 30000,
+      // Statement timeout for PostgreSQL
+      statement_timeout: 30000
     });
+
+    // Pool error handler - prevent unhandled pool errors from crashing app
+    this.pool.on('error', (err, client) => {
+      this.logger.error('Unexpected pool error', { error: err.message });
+    });
+
+    // Pool connect event - log new connections
+    this.pool.on('connect', (client) => {
+      this.logger.debug('New client connected to main pool');
+      // Set statement timeout for this connection
+      client.query('SET statement_timeout = 30000').catch((err) => {
+        this.logger.warn('Failed to set statement timeout', { error: err.message });
+      });
+    });
+
     this.logger.info('Database connection pool initialized', {
       host: this.pool.options.host,
       port: this.pool.options.port,
-      max: this.pool.options.max
+      max: this.pool.options.max,
+      queryTimeout: 30000
     });
   }
 
   async query(text: string, params?: any[]) {
     const start = Date.now();
-    try {
-      const res = await this.pool.query(text, params);
-      const duration = Date.now() - start;
-      this.logger.debug('Query executed', { text, duration, rows: res.rowCount });
-      return res;
-    } catch (err) {
-      this.logger.error('Query failed', { text, error: (err as any).message });
-      throw err;
+    const maxRetries = 2;
+    let lastError: any;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const res = await this.pool.query(text, params);
+        const duration = Date.now() - start;
+        
+        // Log slow queries (> 1 second)
+        if (duration > 1000) {
+          this.logger.warn('Slow query detected', { 
+            text: text.substring(0, 100), 
+            duration, 
+            rows: res.rowCount,
+            attempt: attempt > 0 ? attempt : undefined
+          });
+        } else {
+          this.logger.debug('Query executed', { text: text.substring(0, 100), duration, rows: res.rowCount });
+        }
+        
+        return res;
+      } catch (err: any) {
+        lastError = err;
+        const duration = Date.now() - start;
+        
+        // Check if this is a transient error that we should retry
+        const isTransientError = err.code === 'ECONNRESET' || 
+                                 err.code === 'ECONNREFUSED' || 
+                                 err.code === '57P03' || // cannot_connect_now
+                                 err.code === '53300'; // too_many_connections
+        
+        if (isTransientError && attempt < maxRetries) {
+          this.logger.warn('Transient query error, retrying', { 
+            text: text.substring(0, 100), 
+            error: err.message, 
+            code: err.code,
+            attempt: attempt + 1,
+            duration 
+          });
+          // Wait before retry (exponential backoff)
+          await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 100));
+          continue;
+        }
+        
+        this.logger.error('Query failed', { 
+          text: text.substring(0, 100), 
+          error: err.message, 
+          code: err.code,
+          duration,
+          attempts: attempt + 1
+        });
+        throw err;
+      }
     }
+    
+    throw lastError;
   }
 
   async getClient(): Promise<PoolClient> {
@@ -78,13 +146,32 @@ export class DatabaseService implements OnModuleDestroy, OnModuleInit {
       host: process.env.PG_HOST || 'localhost',
       port: Number(process.env.PG_PORT || 5432),
       database: db_name,
-      max: 10,
+      max: 15,
+      min: 1,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000
+      connectionTimeoutMillis: 10000,
+      // Query timeout: 30 seconds
+      query_timeout: 30000,
+      // Statement timeout for PostgreSQL
+      statement_timeout: 30000
+    });
+
+    // Tenant pool error handler
+    tenantPool.on('error', (err, client) => {
+      this.logger.error('Unexpected tenant pool error', { tenantId, error: err.message });
+    });
+
+    // Tenant pool connect event
+    tenantPool.on('connect', (client) => {
+      this.logger.debug('New client connected to tenant pool', { tenantId });
+      // Set statement timeout for this connection
+      client.query('SET statement_timeout = 30000').catch((err) => {
+        this.logger.warn('Failed to set statement timeout for tenant', { tenantId, error: err.message });
+      });
     });
 
     this.tenantPools.set(tenantId, tenantPool);
-    this.logger.info('Created tenant pool', { tenantId, dbName: db_name });
+    this.logger.info('Created tenant pool', { tenantId, dbName: db_name, max: 15, queryTimeout: 30000 });
     
     return tenantPool;
   }
@@ -95,15 +182,65 @@ export class DatabaseService implements OnModuleDestroy, OnModuleInit {
   async queryTenant(tenantId: string, text: string, params?: any[]) {
     const pool = await this.getTenantPool(tenantId);
     const start = Date.now();
-    try {
-      const res = await pool.query(text, params);
-      const duration = Date.now() - start;
-      this.logger.debug('Tenant query executed', { tenantId, text, duration, rows: res.rowCount });
-      return res;
-    } catch (err) {
-      this.logger.error('Tenant query failed', { tenantId, text, error: (err as any).message });
-      throw err;
+    const maxRetries = 2;
+    let lastError: any;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const res = await pool.query(text, params);
+        const duration = Date.now() - start;
+        
+        // Log slow queries (> 1 second)
+        if (duration > 1000) {
+          this.logger.warn('Slow tenant query detected', { 
+            tenantId, 
+            text: text.substring(0, 100), 
+            duration, 
+            rows: res.rowCount,
+            attempt: attempt > 0 ? attempt : undefined
+          });
+        } else {
+          this.logger.debug('Tenant query executed', { tenantId, text: text.substring(0, 100), duration, rows: res.rowCount });
+        }
+        
+        return res;
+      } catch (err: any) {
+        lastError = err;
+        const duration = Date.now() - start;
+        
+        // Check if this is a transient error that we should retry
+        const isTransientError = err.code === 'ECONNRESET' || 
+                                 err.code === 'ECONNREFUSED' || 
+                                 err.code === '57P03' || // cannot_connect_now
+                                 err.code === '53300'; // too_many_connections
+        
+        if (isTransientError && attempt < maxRetries) {
+          this.logger.warn('Transient tenant query error, retrying', { 
+            tenantId,
+            text: text.substring(0, 100), 
+            error: err.message, 
+            code: err.code,
+            attempt: attempt + 1,
+            duration 
+          });
+          // Wait before retry (exponential backoff)
+          await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 100));
+          continue;
+        }
+        
+        this.logger.error('Tenant query failed', { 
+          tenantId, 
+          text: text.substring(0, 100), 
+          error: err.message, 
+          code: err.code,
+          duration,
+          attempts: attempt + 1
+        });
+        throw err;
+      }
     }
+    
+    throw lastError;
   }
 
   /**
@@ -112,6 +249,69 @@ export class DatabaseService implements OnModuleDestroy, OnModuleInit {
   async getTenantClient(tenantId: string): Promise<PoolClient> {
     const pool = await this.getTenantPool(tenantId);
     return pool.connect();
+  }
+
+  /**
+   * Health check - verify database connectivity
+   */
+  async healthCheck(): Promise<{ healthy: boolean; mainPool: any; tenantPools: any }> {
+    try {
+      // Check main pool
+      const mainResult = await this.pool.query('SELECT 1 as health_check');
+      const mainHealthy = mainResult.rows[0]?.health_check === 1;
+
+      // Check tenant pools
+      const tenantPoolHealth: any = {};
+      for (const [tenantId, pool] of this.tenantPools.entries()) {
+        try {
+          await pool.query('SELECT 1 as health_check');
+          tenantPoolHealth[tenantId] = { healthy: true, size: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount };
+        } catch (err) {
+          tenantPoolHealth[tenantId] = { healthy: false, error: (err as any).message };
+        }
+      }
+
+      return {
+        healthy: mainHealthy,
+        mainPool: {
+          totalCount: this.pool.totalCount,
+          idleCount: this.pool.idleCount,
+          waitingCount: this.pool.waitingCount
+        },
+        tenantPools: tenantPoolHealth
+      };
+    } catch (err) {
+      this.logger.error('Health check failed', { error: (err as any).message });
+      return {
+        healthy: false,
+        mainPool: { error: (err as any).message },
+        tenantPools: {}
+      };
+    }
+  }
+
+  /**
+   * Get pool statistics for monitoring
+   */
+  getPoolStats() {
+    const stats = {
+      mainPool: {
+        total: this.pool.totalCount,
+        idle: this.pool.idleCount,
+        waiting: this.pool.waitingCount
+      },
+      tenantPools: {} as any
+    };
+
+    for (const [tenantId, pool] of this.tenantPools.entries()) {
+      stats.tenantPools[tenantId] = {
+        total: pool.totalCount,
+        idle: pool.idleCount,
+        waiting: pool.waitingCount
+      };
+    }
+
+    return stats;
   }
 
   async onModuleDestroy() {

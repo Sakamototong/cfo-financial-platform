@@ -11,7 +11,7 @@ export class AuthService {
     // Demo mode: accept admin/admin without Keycloak
     if (username === 'admin' && password === 'admin') {
       return {
-        access_token: 'demo-token-' + Date.now(),
+        access_token: 'demo-token-super-admin-' + Date.now(),
         refresh_token: 'demo-refresh-' + Date.now(),
         expires_in: 3600,
         refresh_expires_in: 7200,
@@ -56,7 +56,7 @@ export class AuthService {
     // Demo mode: accept demo refresh tokens
     if (refreshToken && refreshToken.startsWith('demo-refresh-')) {
       return {
-        access_token: 'demo-token-' + Date.now(),
+        access_token: 'demo-token-super-admin-' + Date.now(),
         refresh_token: 'demo-refresh-' + Date.now(),
         expires_in: 3600,
         refresh_expires_in: 7200,

@@ -19,9 +19,32 @@ export interface UserTenantMembership {
   joined_at: Date;
 }
 
+// In-memory cache for super admin lookups (avoids DB hit on every request)
+interface CachedUser {
+  user: SystemUser | null;
+  expiry: number;
+}
+
+const CACHE_TTL_MS = 60_000; // 1 minute cache
+
 @Injectable()
 export class SystemUsersService {
+  private userCache = new Map<string, CachedUser>();
+
   constructor(private readonly db: DatabaseService) {}
+
+  /**
+   * Helper: run a query on the system pool and always release the client.
+   * This prevents connection leaks that previously exhausted the pool.
+   */
+  private async systemQuery(text: string, params: any[] = []): Promise<any> {
+    const client = await this.db.getSystemClient();
+    try {
+      return await client.query(text, params);
+    } finally {
+      client.release();
+    }
+  }
 
   /**
    * Create a new system user in the central registry
@@ -31,38 +54,43 @@ export class SystemUsersService {
     full_name: string;
     role: 'super_admin' | 'system_user';
   }): Promise<SystemUser> {
-    const client = await this.db.getSystemClient();
-    const result = await client.query(
+    const result = await this.systemQuery(
       `INSERT INTO system_users (email, full_name, role, is_active)
        VALUES ($1, $2, $3, true)
        RETURNING *`,
       [data.email, data.full_name, data.role]
     );
+    this.invalidateCache(data.email);
     return result.rows[0];
   }
 
   /**
-   * Get system user by email
+   * Get system user by email (with in-memory cache for hot-path lookups)
    */
   async getSystemUserByEmail(email: string): Promise<SystemUser | null> {
-    const client = await this.db.getSystemClient();
-    try {
-      const result = await client.query(
-        `SELECT * FROM system_users WHERE email = $1`,
-        [email]
-      );
-      return result.rows[0] || null;
-    } finally {
-      client.release();
+    // Check cache first
+    const cached = this.userCache.get(email);
+    if (cached && cached.expiry > Date.now()) {
+      return cached.user;
     }
+
+    const result = await this.systemQuery(
+      `SELECT * FROM system_users WHERE email = $1`,
+      [email]
+    );
+    const user = result.rows[0] || null;
+
+    // Cache the result
+    this.userCache.set(email, { user, expiry: Date.now() + CACHE_TTL_MS });
+
+    return user;
   }
 
   /**
    * Get system user by ID
    */
   async getSystemUserById(id: string): Promise<SystemUser | null> {
-    const client = await this.db.getSystemClient();
-    const result = await client.query(
+    const result = await this.systemQuery(
       `SELECT * FROM system_users WHERE id = $1`,
       [id]
     );
@@ -76,7 +104,6 @@ export class SystemUsersService {
     role?: 'super_admin' | 'system_user';
     is_active?: boolean;
   }): Promise<SystemUser[]> {
-    const client = await this.db.getSystemClient();
     let query = `SELECT * FROM system_users WHERE 1=1`;
     const params: any[] = [];
     let paramIndex = 1;
@@ -93,7 +120,7 @@ export class SystemUsersService {
 
     query += ` ORDER BY created_at DESC`;
 
-    const result = await client.query(query, params);
+    const result = await this.systemQuery(query, params);
     return result.rows;
   }
 
@@ -104,7 +131,6 @@ export class SystemUsersService {
     id: string,
     data: Partial<Pick<SystemUser, 'full_name' | 'role' | 'is_active'>>
   ): Promise<SystemUser> {
-    const client = await this.db.getSystemClient();
     const updates: string[] = [];
     const params: any[] = [];
     let paramIndex = 1;
@@ -125,14 +151,14 @@ export class SystemUsersService {
     }
 
     updates.push(`updated_at = now()`);
-
     params.push(id);
 
-    const result = await client.query(
+    const result = await this.systemQuery(
       `UPDATE system_users SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
       params
     );
 
+    this.clearCache();
     return result.rows[0];
   }
 
@@ -144,11 +170,10 @@ export class SystemUsersService {
     tenantId: string,
     role: 'admin' | 'analyst' | 'viewer'
   ): Promise<UserTenantMembership> {
-    const client = await this.db.getSystemClient();
-    const result = await client.query(
+    const result = await this.systemQuery(
       `INSERT INTO user_tenant_memberships (user_id, tenant_id, tenant_role)
        VALUES ($1, $2, $3)
-       ON CONFLICT (user_id, tenant_id) 
+       ON CONFLICT (user_id, tenant_id)
        DO UPDATE SET tenant_role = $3, joined_at = now()
        RETURNING *`,
       [userId, tenantId, role]
@@ -160,8 +185,7 @@ export class SystemUsersService {
    * Remove user from tenant
    */
   async removeUserFromTenant(userId: string, tenantId: string): Promise<void> {
-    const client = await this.db.getSystemClient();
-    await client.query(
+    await this.systemQuery(
       `DELETE FROM user_tenant_memberships WHERE user_id = $1 AND tenant_id = $2`,
       [userId, tenantId]
     );
@@ -175,11 +199,10 @@ export class SystemUsersService {
     tenant_role: string;
     joined_at: Date;
   }>> {
-    const client = await this.db.getSystemClient();
-    const result = await client.query(
-      `SELECT tenant_id, tenant_role, joined_at 
-       FROM user_tenant_memberships 
-       WHERE user_id = $1 
+    const result = await this.systemQuery(
+      `SELECT tenant_id, tenant_role, joined_at
+       FROM user_tenant_memberships
+       WHERE user_id = $1
        ORDER BY joined_at DESC`,
       [userId]
     );
@@ -197,9 +220,8 @@ export class SystemUsersService {
     is_active: boolean;
     joined_at: Date;
   }>> {
-    const client = await this.db.getSystemClient();
-    const result = await client.query(
-      `SELECT 
+    const result = await this.systemQuery(
+      `SELECT
         su.id as user_id,
         su.email,
         su.full_name,
@@ -219,8 +241,7 @@ export class SystemUsersService {
    * Check if user has access to tenant
    */
   async hasAccessToTenant(userId: string, tenantId: string): Promise<boolean> {
-    const client = await this.db.getSystemClient();
-    const result = await client.query(
+    const result = await this.systemQuery(
       `SELECT 1 FROM user_tenant_memberships WHERE user_id = $1 AND tenant_id = $2`,
       [userId, tenantId]
     );
@@ -234,8 +255,7 @@ export class SystemUsersService {
     userId: string,
     tenantId: string
   ): Promise<'admin' | 'analyst' | 'viewer' | null> {
-    const client = await this.db.getSystemClient();
-    const result = await client.query(
+    const result = await this.systemQuery(
       `SELECT tenant_role FROM user_tenant_memberships WHERE user_id = $1 AND tenant_id = $2`,
       [userId, tenantId]
     );
@@ -246,8 +266,7 @@ export class SystemUsersService {
    * Update last login timestamp
    */
   async updateLastLogin(userId: string): Promise<void> {
-    const client = await this.db.getSystemClient();
-    await client.query(
+    await this.systemQuery(
       `UPDATE system_users SET last_login_at = now() WHERE id = $1`,
       [userId]
     );
@@ -257,9 +276,8 @@ export class SystemUsersService {
    * Search users across the system
    */
   async searchUsers(query: string, limit = 50): Promise<SystemUser[]> {
-    const client = await this.db.getSystemClient();
-    const result = await client.query(
-      `SELECT * FROM system_users 
+    const result = await this.systemQuery(
+      `SELECT * FROM system_users
        WHERE email ILIKE $1 OR full_name ILIKE $1
        ORDER BY created_at DESC
        LIMIT $2`,
@@ -273,5 +291,26 @@ export class SystemUsersService {
    */
   async getSuperAdmins(): Promise<SystemUser[]> {
     return this.listSystemUsers({ role: 'super_admin', is_active: true });
+  }
+
+  /**
+   * Delete system user
+   */
+  async deleteSystemUser(userId: string): Promise<void> {
+    await this.systemQuery(
+      `DELETE FROM system_users WHERE id = $1`,
+      [userId]
+    );
+    this.clearCache();
+  }
+
+  /** Invalidate cache for a specific email */
+  private invalidateCache(email: string): void {
+    this.userCache.delete(email);
+  }
+
+  /** Clear entire cache */
+  private clearCache(): void {
+    this.userCache.clear();
   }
 }

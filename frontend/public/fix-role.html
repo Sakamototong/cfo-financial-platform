@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Fix Role Cache - CFO Platform</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 600px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .card {
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #333;
+      margin-top: 0;
+    }
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 4px;
+      font-size: 16px;
+      cursor: pointer;
+      margin: 10px 10px 10px 0;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    .success {
+      background: #28a745;
+      padding: 15px;
+      border-radius: 4px;
+      color: white;
+      margin: 20px 0;
+      display: none;
+    }
+    .info {
+      background: #e7f3ff;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 20px 0;
+      border-left: 4px solid #007bff;
+    }
+    .warning {
+      background: #fff3cd;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 20px 0;
+      border-left: 4px solid #ffc107;
+    }
+    pre {
+      background: #f8f9fa;
+      padding: 10px;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+    .btn-danger {
+      background: #dc3545;
+    }
+    .btn-danger:hover {
+      background: #c82333;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🔧 Fix Role Cache Issue</h1>
+    
+    <div class="info">
+      <strong>ปัญหา:</strong> Frontend ไม่แสดงเมนู Super Admin ที่ถูกต้อง<br>
+      <strong>สาเหตุ:</strong> Browser cache เก็บ role เก่าไว้ใน localStorage
+    </div>
+
+    <div class="warning">
+      <strong>⚠️ คำเตือน:</strong> การกดปุ่มด้านล่างจะลบข้อมูล session ทั้งหมด คุณต้อง login ใหม่อีกครั้ง
+    </div>
+
+    <h3>วิธีแก้ไข:</h3>
+    
+    <button onclick="showCurrentData()">1. ดูข้อมูลปัจจุบัน</button>
+    <button onclick="clearAndReload()" class="btn-danger">2. ลบ Cache และ Reload</button>
+    <button onclick="goToLogin()">3. ไปหน้า Login</button>
+    
+    <div id="result" class="success"></div>
+    
+    <div id="currentData" style="margin-top: 20px; display: none;">
+      <h3>ข้อมูลปัจจุบันใน localStorage:</h3>
+      <pre id="dataDisplay"></pre>
+    </div>
+  </div>
+
+  <script>
+    function showCurrentData() {
+      const data = {
+        access_token: localStorage.getItem('access_token') ? '(มี token)' : '(ไม่มี)',
+        tenant_id: localStorage.getItem('tenant_id'),
+        user_role: localStorage.getItem('user_role'),
+        user_email: localStorage.getItem('user_email'),
+        is_super_admin: localStorage.getItem('is_super_admin')
+      };
+      
+      document.getElementById('dataDisplay').textContent = JSON.stringify(data, null, 2);
+      document.getElementById('currentData').style.display = 'block';
+    }
+
+    function clearAndReload() {
+      if (confirm('คุณแน่ใจหรือไม่? คุณจะต้อง login ใหม่')) {
+        // Clear all localStorage
+        localStorage.clear();
+        
+        // Show success message
+        const result = document.getElementById('result');
+        result.textContent = '✅ ลบ cache สำเร็จ! กำลัง redirect ไปหน้า login...';
+        result.style.display = 'block';
+        
+        // Redirect to login after 2 seconds
+        setTimeout(() => {
+          window.location.href = '/login';
+        }, 2000);
+      }
+    }
+
+    function goToLogin() {
+      window.location.href = '/login';
+    }
+
+    // Auto-show current data on load
+    window.onload = showCurrentData;
+  </script>
+</body>
+</html>

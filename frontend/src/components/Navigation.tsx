@@ -8,7 +8,7 @@ import NotificationCenter from './NotificationCenter'
 
 export default function Navigation() {
   const location = useLocation()
-  const { role, email } = useUser()
+  const { role, email, loading } = useUser()
   const { company } = useTenant()
   const { theme, toggleTheme } = useTheme()
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -227,13 +227,21 @@ export default function Navigation() {
         </div>
 
         <nav className="sidebar-nav">
+          {loading && (
+            <div style={{ textAlign: 'center', padding: '12px 0', color: '#888', fontSize: '13px' }}>
+              <i className="fas fa-spinner fa-spin" style={{ marginRight: 6 }}></i>Loading menu...
+            </div>
+          )}
           {/* Super Admin */}
           {isSuperAdmin && (
             <div className="nav-group">
               <div className="nav-group-title">🔒 Super Admin</div>
               <div className="nav-group-items">
-                <Link to="/super-admin" className={isActive('/super-admin') ? 'active' : ''} title="Super Admin">
-                  <span className="icon">🔒</span> Super Admin
+                <Link to="/super-admin" className={isActive('/super-admin') && location.pathname === '/super-admin' ? 'active' : ''} title="Super Admin Dashboard">
+                  <span className="icon">🏢</span> Dashboard
+                </Link>
+                <Link to="/super-admin/system-users" className={isActive('/super-admin/system-users') ? 'active' : ''} title="System Users">
+                  <span className="icon">👥</span> System Users
                 </Link>
               </div>
             </div>

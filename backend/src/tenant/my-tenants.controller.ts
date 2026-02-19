@@ -13,47 +13,52 @@ export class MyTenantsController {
 
   @Get()
   async getMyTenants(@Request() req: any) {
-    const username = req.user?.preferred_username || req.user?.email || req.user?.sub;
-    
+    const username = req.user?.preferred_username || req.user?.sub;
+    const email = req.user?.email || username;
+    const roles: string[] = req.user?.roles || [];
+    const isSuperAdmin = roles.includes('super_admin');
+
     try {
-      // Demo mode - return all tenants
-      if (username === 'admin') {
+      // Super admins and demo admin can see all tenants
+      if (isSuperAdmin || username === 'admin') {
         return this.tenantService.listTenants();
       }
-      
+
       // Get all tenants
       const allTenants = await this.tenantService.listTenants();
-      
-      // If no tenants found, return default
+
       if (!allTenants || allTenants.length === 0) {
         return [{ id: 'admin', name: 'Default Company' }];
       }
-      
+
       const myTenants = [];
-      
-      // Check which tenants this user belongs to
+
+      // Check which tenants this user belongs to — match on email OR username
       for (const tenant of allTenants) {
         try {
           const users = await this.userService.listUsers(tenant.id);
-          const userExists = users.some((u: any) => u.email === username || u.username === username);
+          const userExists = users.some(
+            (u: any) =>
+              u.email === email ||
+              u.email === username ||
+              u.username === username ||
+              u.username === email,
+          );
           if (userExists) {
             myTenants.push(tenant);
           }
         } catch (err: any) {
-          // Skip tenants where query fails
           console.warn(`Failed to check user in tenant ${tenant.id}:`, err?.message || 'Unknown error');
         }
       }
-      
-      // If user doesn't belong to any tenant, return first tenant or default
+
       if (myTenants.length === 0) {
         return allTenants.length > 0 ? [allTenants[0]] : [{ id: 'admin', name: 'Default Company' }];
       }
-      
+
       return myTenants;
     } catch (error) {
       console.error('Error in getMyTenants:', error);
-      // Return a default tenant on error
       return [{ id: 'admin', name: 'Default Company' }];
     }
   }

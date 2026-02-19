@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import ReactDOM from 'react-dom';
 import api from '../api/client';
 
 interface BudgetItem {
@@ -20,6 +21,8 @@ const Budget: React.FC = () => {
   const [selectedBudget, setSelectedBudget] = useState<BudgetItem | null>(null);
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [summary, setSummary] = useState<Summary[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showLineItemModal, setShowLineItemModal] = useState(false);
   const [editingLineItem, setEditingLineItem] = useState<LineItem | null>(null);
@@ -28,19 +31,28 @@ const Budget: React.FC = () => {
     account_code: '', department: '', january: 0, february: 0, march: 0, april: 0, may: 0, june: 0,
     july: 0, august: 0, september: 0, october: 0, november: 0, december: 0
   });
+  const detailRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { fetchBudgets() }, []);
 
   const fetchBudgets = async () => { try { const r = await api.get('/budgets'); setBudgets(r.data) } catch (e) { console.error('Error:', e) } };
 
   const fetchBudgetDetails = async (id: string) => {
+    setLoading(true); setDetailError(null);
     try {
       const [b, l, s] = await Promise.all([api.get(`/budgets/${id}`), api.get(`/budgets/${id}/line-items`), api.get(`/budgets/${id}/summary`)]);
       setSelectedBudget(b.data); setLineItems(l.data); setSummary(s.data);
-    } catch (e) { console.error('Error:', e) }
+    } catch (e: any) {
+      console.error('Error:', e);
+      setDetailError(e.response?.data?.message || e.message || 'Failed to load budget details');
+    } finally { setLoading(false); }
   };
 
-  const handleSelectBudget = (b: BudgetItem) => { setSelectedBudget(b); fetchBudgetDetails(b.id) };
+  const handleSelectBudget = (b: BudgetItem) => {
+    setSelectedBudget(b); setLineItems([]); setSummary([]);
+    fetchBudgetDetails(b.id);
+    setTimeout(() => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+  };
 
   const handleAddBudget = async () => {
     try { await api.post('/budgets', newBudget); setShowAddModal(false); setNewBudget({ budget_name: '', fiscal_year: new Date().getFullYear() + 1, budget_type: 'annual', description: '' }); fetchBudgets(); }
@@ -113,13 +125,16 @@ const Budget: React.FC = () => {
       <div className="row">
         <div className="col-md-4">
           <div className="card">
-            <div className="card-header">
-              <h3 className="card-title">Budgets</h3>
-              <div className="card-tools">
-                <button className="btn btn-primary btn-sm" onClick={() => setShowAddModal(true)}>
-                  <i className="bi bi-plus-lg me-1"></i>New Budget
-                </button>
-              </div>
+            <div className="card-header d-flex align-items-center justify-content-between">
+              <h3 className="card-title mb-0">Budgets</h3>
+              <button type="button" className="btn btn-primary btn-sm" style={{ position: 'relative', zIndex: 10 }}
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  setSelectedBudget(null);
+                  setShowAddModal(true); 
+                }}>
+                <i className="bi bi-plus-lg me-1"></i>New Budget
+              </button>
             </div>
             <div className="card-body p-0">
               <div className="list-group list-group-flush">
@@ -141,13 +156,82 @@ const Budget: React.FC = () => {
           </div>
         </div>
 
-        <div className="col-md-8">
-          {selectedBudget ? (
+        <div className="col-md-8" ref={detailRef}>
+          {!selectedBudget && !showAddModal && (
+            <div className="card">
+              <div className="card-body text-center text-muted py-5">
+                <i className="bi bi-arrow-left-circle d-block mb-2" style={{ fontSize: '3rem' }}></i>
+                <h5>Select a budget to view details</h5>
+              </div>
+            </div>
+          )}
+
+          {showAddModal && (
+            <div className="card">
+              <div className="card-header">
+                <h3 className="card-title"><i className="bi bi-plus-circle me-2"></i>Create New Budget</h3>
+              </div>
+              <div className="card-body">
+                <div className="mb-3">
+                  <label className="form-label">Budget Name</label>
+                  <input className="form-control" value={newBudget.budget_name} 
+                    onChange={e => setNewBudget({ ...newBudget, budget_name: e.target.value })} 
+                    placeholder="e.g., FY2026 Annual Budget" />
+                </div>
+                <div className="row mb-3">
+                  <div className="col-md-6">
+                    <label className="form-label">Fiscal Year</label>
+                    <input type="number" className="form-control" value={newBudget.fiscal_year} 
+                      onChange={e => setNewBudget({ ...newBudget, fiscal_year: parseInt(e.target.value) })} />
+                  </div>
+                  <div className="col-md-6">
+                    <label className="form-label">Budget Type</label>
+                    <select className="form-select" value={newBudget.budget_type} 
+                      onChange={e => setNewBudget({ ...newBudget, budget_type: e.target.value })}>
+                      <option value="annual">Annual</option>
+                      <option value="revised">Revised</option>
+                      <option value="supplemental">Supplemental</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="mb-3">
+                  <label className="form-label">Description</label>
+                  <textarea className="form-control" rows={3} value={newBudget.description} 
+                    onChange={e => setNewBudget({ ...newBudget, description: e.target.value })} />
+                </div>
+                <div className="d-flex gap-2">
+                  <button className="btn btn-secondary" onClick={() => setShowAddModal(false)}>
+                    <i className="bi bi-x-lg me-1"></i>Cancel
+                  </button>
+                  <button className="btn btn-primary" onClick={handleAddBudget}>
+                    <i className="bi bi-check-lg me-1"></i>Create
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {selectedBudget && !showAddModal && (
             <>
+              {loading && (
+                <div className="text-center py-4">
+                  <div className="spinner-border text-primary" role="status"><span className="visually-hidden">Loading...</span></div>
+                  <p className="mt-2 text-muted">Loading budget details...</p>
+                </div>
+              )}
+              {detailError && (
+                <div className="alert alert-danger d-flex align-items-center" role="alert">
+                  <i className="bi bi-exclamation-triangle-fill me-2"></i>
+                  <div>Failed to load details: {detailError} <button className="btn btn-sm btn-outline-danger ms-2" onClick={() => fetchBudgetDetails(selectedBudget.id)}>Retry</button></div>
+                </div>
+              )}
               <div className="card mb-3">
                 <div className="card-header">
                   <h3 className="card-title">{selectedBudget.budget_name}</h3>
                   <div className="card-tools d-flex gap-2 align-items-center">
+                    <button className="btn btn-outline-secondary btn-sm d-md-none" onClick={() => { setSelectedBudget(null); setDetailError(null); }}>
+                      <i className="bi bi-arrow-left me-1"></i>Back
+                    </button>
                     {selectedBudget.status === 'draft' && (
                       <>
                         <button className="btn btn-success btn-sm" onClick={() => setShowLineItemModal(true)}><i className="bi bi-plus-lg me-1"></i>Add Line</button>
@@ -227,36 +311,13 @@ const Budget: React.FC = () => {
                 )}
               </div>
             </>
-          ) : (
-            <div className="card">
-              <div className="card-body text-center text-muted py-5">
-                <i className="bi bi-arrow-left-circle d-block mb-2" style={{ fontSize: '3rem' }}></i>
-                <h5>Select a budget to view details</h5>
-              </div>
-            </div>
           )}
         </div>
       </div>
 
-      {showAddModal && (
-        <div className="modal d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="modal-dialog"><div className="modal-content">
-            <div className="modal-header"><h5 className="modal-title"><i className="bi bi-plus-circle me-2"></i>Create New Budget</h5><button className="btn-close" onClick={() => setShowAddModal(false)}></button></div>
-            <div className="modal-body">
-              <div className="mb-3"><label className="form-label">Budget Name</label><input className="form-control" value={newBudget.budget_name} onChange={e => setNewBudget({ ...newBudget, budget_name: e.target.value })} placeholder="e.g., FY2026 Annual Budget" /></div>
-              <div className="row mb-3">
-                <div className="col-md-6"><label className="form-label">Fiscal Year</label><input type="number" className="form-control" value={newBudget.fiscal_year} onChange={e => setNewBudget({ ...newBudget, fiscal_year: parseInt(e.target.value) })} /></div>
-                <div className="col-md-6"><label className="form-label">Budget Type</label><select className="form-select" value={newBudget.budget_type} onChange={e => setNewBudget({ ...newBudget, budget_type: e.target.value })}><option value="annual">Annual</option><option value="revised">Revised</option><option value="supplemental">Supplemental</option></select></div>
-              </div>
-              <div className="mb-3"><label className="form-label">Description</label><textarea className="form-control" rows={3} value={newBudget.description} onChange={e => setNewBudget({ ...newBudget, description: e.target.value })} /></div>
-            </div>
-            <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setShowAddModal(false)}>Cancel</button><button className="btn btn-primary" onClick={handleAddBudget}><i className="bi bi-check-lg me-1"></i>Create</button></div>
-          </div></div>
-        </div>
-      )}
 
-      {showLineItemModal && (
-        <div className="modal d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+      {showLineItemModal && ReactDOM.createPortal(
+        <div className="modal d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)', position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999 }}>
           <div className="modal-dialog modal-lg"><div className="modal-content">
             <div className="modal-header"><h5 className="modal-title"><i className="bi bi-plus-circle me-2"></i>Add Budget Line Item</h5><button className="btn-close" onClick={() => setShowLineItemModal(false)}></button></div>
             <div className="modal-body">
@@ -269,11 +330,12 @@ const Budget: React.FC = () => {
             </div>
             <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setShowLineItemModal(false)}>Cancel</button><button className="btn btn-primary" onClick={handleAddLineItem}><i className="bi bi-check-lg me-1"></i>Add Line Item</button></div>
           </div></div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {editingLineItem && (
-        <div className="modal d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+      {editingLineItem && ReactDOM.createPortal(
+        <div className="modal d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)', position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999 }}>
           <div className="modal-dialog modal-lg"><div className="modal-content">
             <div className="modal-header"><h5 className="modal-title"><i className="bi bi-pencil me-2"></i>Edit Line Item</h5><button className="btn-close" onClick={() => setEditingLineItem(null)}></button></div>
             <div className="modal-body">
@@ -283,7 +345,8 @@ const Budget: React.FC = () => {
             </div>
             <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setEditingLineItem(null)}>Cancel</button><button className="btn btn-primary" onClick={handleUpdateLineItem}><i className="bi bi-check-lg me-1"></i>Update</button></div>
           </div></div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );

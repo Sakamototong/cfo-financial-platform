@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import ReactDOM from 'react-dom';
 import { Link } from 'react-router-dom';
 import api from '../api/client';
 import { exportTableToExcel, exportPageToPDF } from '../utils/exportUtils';
@@ -47,7 +48,9 @@ export default function CashFlowForecast() {
   const [summary, setSummary] = useState<ForecastSummary | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   // Create form fields
   const [forecastName, setForecastName] = useState('');
@@ -60,8 +63,17 @@ export default function CashFlowForecast() {
   }, []);
 
   useEffect(() => {
+    console.log('CASHFLOW showCreateForm changed to:', showCreateForm);
+  }, [showCreateForm]);
+
+  useEffect(() => {
     if (selectedForecast) {
       fetchForecastDetails();
+      // Scroll to detail section on mobile
+      const detailSection = document.querySelector('.col-md-8');
+      if (detailSection && window.innerWidth < 768) {
+        detailSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
     }
   }, [selectedForecast]);
 
@@ -78,8 +90,8 @@ export default function CashFlowForecast() {
   const fetchForecastDetails = async () => {
     if (!selectedForecast) return;
 
-    setLoading(true);
-    setError(null);
+    setDetailLoading(true);
+    setDetailError(null);
 
     try {
       const [itemsRes, summaryRes] = await Promise.all([
@@ -91,9 +103,9 @@ export default function CashFlowForecast() {
       setSummary(summaryRes.data);
     } catch (err: any) {
       console.error('Error fetching forecast details:', err);
-      setError(err.response?.data?.message || 'Failed to load forecast details');
+      setDetailError(err.response?.data?.message || 'Failed to load forecast details');
     } finally {
-      setLoading(false);
+      setDetailLoading(false);
     }
   };
 
@@ -204,100 +216,7 @@ export default function CashFlowForecast() {
         </div>
       )}
 
-      {/* Create Forecast Modal */}
-      {showCreateForm && (
-        <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="modal-dialog">
-            <div className="modal-content">
-              <div className="modal-header">
-                <h5 className="modal-title">
-                  <i className="bi bi-plus-circle me-2"></i>
-                  Create New Forecast
-                </h5>
-                <button type="button" className="btn-close" onClick={() => setShowCreateForm(false)} aria-label="Close"></button>
-              </div>
-              <form onSubmit={createForecast}>
-                <div className="modal-body">
-                  <div className="mb-3">
-                    <label htmlFor="forecast-name" className="form-label">Forecast Name *</label>
-                    <input
-                      id="forecast-name"
-                      type="text"
-                      className="form-control"
-                      value={forecastName}
-                      onChange={(e) => setForecastName(e.target.value)}
-                      placeholder="e.g., Q1 2026 Forecast"
-                      required
-                    />
-                  </div>
-                  <div className="row">
-                    <div className="col-md-6 mb-3">
-                      <label htmlFor="start-date" className="form-label">Start Date *</label>
-                      <input
-                        id="start-date"
-                        type="date"
-                        className="form-control"
-                        value={startDate}
-                        onChange={(e) => setStartDate(e.target.value)}
-                        required
-                      />
-                    </div>
-                    <div className="col-md-6 mb-3">
-                      <label htmlFor="weeks" className="form-label">Number of Weeks</label>
-                      <input
-                        id="weeks"
-                        type="number"
-                        className="form-control"
-                        value={weeks}
-                        onChange={(e) => setWeeks(parseInt(e.target.value))}
-                        min="1"
-                        max="52"
-                      />
-                    </div>
-                  </div>
-                  <div className="mb-3">
-                    <label htmlFor="beginning-cash" className="form-label">Beginning Cash Balance</label>
-                    <input
-                      id="beginning-cash"
-                      type="number"
-                      className="form-control"
-                      value={beginningCash}
-                      onChange={(e) => setBeginningCash(parseFloat(e.target.value))}
-                      step="0.01"
-                    />
-                  </div>
-                </div>
-                <div className="modal-footer">
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => setShowCreateForm(false)}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="btn btn-primary"
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <>
-                        <span className="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
-                        Creating...
-                      </>
-                    ) : (
-                      <>
-                        <i className="bi bi-plus-lg me-1"></i>
-                        Create Forecast
-                      </>
-                    )}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
+
 
       {/* Main Layout: Sidebar + Content */}
       <div className="row">
@@ -311,7 +230,12 @@ export default function CashFlowForecast() {
               </h3>
               <button
                 className="btn btn-primary btn-sm"
-                onClick={() => setShowCreateForm(true)}
+                style={{ position: 'relative', zIndex: 10 }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedForecast(null);
+                  setShowCreateForm(true);
+                }}
               >
                 <i className="bi bi-plus-lg me-1"></i>
                 New
@@ -385,11 +309,123 @@ export default function CashFlowForecast() {
             </div>
           )}
 
+          {/* Create New Forecast Form */}
+          {showCreateForm && (
+            <div className="card">
+              <div className="card-header">
+                <h3 className="card-title">
+                  <i className="bi bi-plus-circle me-2"></i>
+                  Create New Forecast
+                </h3>
+              </div>
+              <div className="card-body">
+                <form onSubmit={createForecast}>
+                  <div className="mb-3">
+                    <label htmlFor="forecast-name" className="form-label">Forecast Name *</label>
+                    <input
+                      id="forecast-name"
+                      type="text"
+                      className="form-control"
+                      value={forecastName}
+                      onChange={(e) => setForecastName(e.target.value)}
+                      placeholder="e.g., Q1 2026 Forecast"
+                      required
+                    />
+                  </div>
+                  <div className="row">
+                    <div className="col-md-6 mb-3">
+                      <label htmlFor="start-date" className="form-label">Start Date *</label>
+                      <input
+                        id="start-date"
+                        type="date"
+                        className="form-control"
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="col-md-6 mb-3">
+                      <label htmlFor="weeks" className="form-label">Number of Weeks</label>
+                      <input
+                        id="weeks"
+                        type="number"
+                        className="form-control"
+                        value={weeks}
+                        onChange={(e) => setWeeks(parseInt(e.target.value))}
+                        min="1"
+                        max="52"
+                      />
+                    </div>
+                  </div>
+                  <div className="mb-3">
+                    <label htmlFor="beginning-cash" className="form-label">Beginning Cash Balance</label>
+                    <input
+                      id="beginning-cash"
+                      type="number"
+                      className="form-control"
+                      value={beginningCash}
+                      onChange={(e) => setBeginningCash(parseFloat(e.target.value))}
+                      step="0.01"
+                    />
+                  </div>
+                  <div className="d-flex gap-2">
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => setShowCreateForm(false)}
+                    >
+                      <i className="bi bi-x-lg me-1"></i>
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="btn btn-primary"
+                      disabled={loading}
+                    >
+                      {loading ? (
+                        <>
+                          <span className="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                          Creating...
+                        </>
+                      ) : (
+                        <>
+                          <i className="bi bi-plus-lg me-1"></i>
+                          Create Forecast
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
           {/* Selected Forecast Details */}
           {selectedForecast && !showCreateForm && (
             <>
+              {/* Detail Loading State */}
+              {detailLoading && (
+                <div className="card">
+                  <div className="card-body text-center py-5">
+                    <div className="spinner-border text-primary" role="status">
+                      <span className="visually-hidden">Loading forecast details...</span>
+                    </div>
+                    <p className="text-muted mt-3">Loading forecast details...</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Detail Error Display */}
+              {detailError && !detailLoading && (
+                <div className="alert alert-danger alert-dismissible fade show" role="alert">
+                  <i className="bi bi-exclamation-triangle-fill me-2"></i>
+                  {detailError}
+                  <button type="button" className="btn-close" onClick={() => setDetailError(null)} aria-label="Close"></button>
+                </div>
+              )}
+
               {/* Summary Info Boxes */}
-              {summary && (
+              {!detailLoading && !detailError && summary && (
                 <div className="row mb-3">
                   <div className="col-md-6 col-lg-3 mb-3">
                     <div className="info-box">

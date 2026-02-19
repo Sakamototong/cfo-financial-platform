@@ -26,17 +26,31 @@ import { EtlEnhancedModule } from './etl-enhanced/etl-enhanced.module';
 import { CashflowModule } from './cashflow/cashflow.module';
 import { VersionControlModule } from './version-control/version-control.module';
 import { DsrModule } from './dsr/dsr.module';
+import { HealthModule } from './health/health.module';
 import { throttleConfig } from './config/throttle.config';
+import { RedisThrottlerStorage } from './config/redis-throttler.storage';
+import { RedisThrottlerStorageModule } from './config/redis-throttler-storage.module';
 // import { PrivacyModule } from './privacy/privacy.module';
 // import { AuditModule } from './audit/audit.module';
 
 @Module({
   imports: [
-    // Rate Limiting (Phase 2 - Security)
-    ThrottlerModule.forRoot(throttleConfig),
+    // Redis storage module must be loaded first for ThrottlerModule injection
+    RedisThrottlerStorageModule,
+    // Rate Limiting with Redis-backed storage for stability and horizontal scaling.
+    // RedisThrottlerStorage falls back to in-memory if Redis is unavailable.
+    ThrottlerModule.forRootAsync({
+      imports: [RedisThrottlerStorageModule],
+      useFactory: (redisStorage: RedisThrottlerStorage) => ({
+        throttlers: throttleConfig,
+        storage: redisStorage,
+      } as any),
+      inject: [RedisThrottlerStorage],
+    }),
     // Core modules
     LoggerModule,
     DatabaseModule,
+    HealthModule,
     KmsModule,
     TenantModule,
     AuthModule,
