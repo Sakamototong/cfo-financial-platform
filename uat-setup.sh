@@ -306,6 +306,24 @@ if [[ -f "$INFRA_DIR/init-admin-coa.sql" ]]; then
   ok "init-admin-coa.sql (20 accounts)"
 fi
 
+log "Seeding tenant users (email + role mapping)..."
+# Use DELETE + INSERT since the users table has no unique constraint on email
+docker exec infra-db-1 psql -U postgres -d "$ADMIN_DB" -c \
+  "DELETE FROM users WHERE email IN ('admin@admin.local','analyst@admin.local','viewer@admin.local');
+   INSERT INTO users (tenant_id, email, full_name, role) VALUES
+    ('admin', 'admin@admin.local',    'Admin User',    'admin'),
+    ('admin', 'analyst@admin.local',  'Admin Analyst', 'analyst'),
+    ('admin', 'viewer@admin.local',   'Admin Viewer',  'viewer');" \
+  &>/dev/null || true
+docker exec infra-db-1 psql -U postgres -d "$ACME_DB" -c \
+  "DELETE FROM users WHERE email IN ('admin@acmecorp.local','analyst@acmecorp.local','viewer@acmecorp.local');
+   INSERT INTO users (tenant_id, email, full_name, role) VALUES
+    ('155cf73a2fe388f0', 'admin@acmecorp.local',    'Acme Admin',    'admin'),
+    ('155cf73a2fe388f0', 'analyst@acmecorp.local',  'Acme Analyst',  'analyst'),
+    ('155cf73a2fe388f0', 'viewer@acmecorp.local',   'Acme Viewer',   'viewer');" \
+  &>/dev/null || true
+ok "Tenant users seeded (admin, analyst, viewer for each tenant)"
+
 # =============================================================================
 section "Step 7 — Keycloak Users (optional)"
 # =============================================================================
@@ -335,7 +353,70 @@ else
       warn "Could not get Keycloak admin token — skipping user creation"
     else
       ok "Keycloak admin token obtained"
+      # Create Keycloak realm roles (admin, analyst, viewer, super_admin)
+      for kc_role in admin analyst viewer super_admin; do
+        HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+          "$KEYCLOAK_URL/admin/realms/master/roles" \
+          -H "Authorization: Bearer $ADMIN_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d "{\"name\":\"$kc_role\"}")
+        if [[ "$HTTP" == "201" ]] || [[ "$HTTP" == "409" ]]; then
+          ok "Keycloak realm role: $kc_role"
+        else
+          warn "Keycloak role $kc_role: HTTP $HTTP"
+        fi
+      done
 
+      # Assign Keycloak roles to users
+      kc_assign_role() {
+        local username="$1" role_name="$2"
+        local user_id role_id role_obj
+        user_id=$(curl -sf "$KEYCLOAK_URL/admin/realms/master/users?username=$username&exact=true" \
+          -H "Authorization: Bearer $ADMIN_TOKEN" \
+          | python3 -c "import sys,json; u=json.load(sys.stdin); print(u[0]['id'] if u else '')" 2>/dev/null || echo "")
+        role_obj=$(curl -sf "$KEYCLOAK_URL/admin/realms/master/roles/$role_name" \
+          -H "Authorization: Bearer $ADMIN_TOKEN" 2>/dev/null || echo "{}")
+        role_id=$(echo "$role_obj" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null || echo "")
+        if [[ -n "$user_id" ]] && [[ -n "$role_id" ]]; then
+          curl -sf -X POST "$KEYCLOAK_URL/admin/realms/master/users/$user_id/role-mappings/realm" \
+            -H "Authorization: Bearer $ADMIN_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "[{\"id\":\"$role_id\",\"name\":\"$role_name\"}]" &>/dev/null || true
+          ok "Keycloak role assignment: $username → $role_name"
+        else
+          warn "Could not assign role $role_name to $username"
+        fi
+      }
+      kc_assign_role "admin-user"    "admin"
+      kc_assign_role "analyst-user"  "analyst"
+      kc_assign_role "viewer-user"   "viewer"
+      kc_assign_role "acme-admin"    "admin"
+      kc_assign_role "acme-analyst"  "analyst"
+      kc_assign_role "acme-viewer"   "viewer"
+      kc_assign_role "superadmin"    "super_admin"
+
+      # Create cfo-client (required for password grant login)
+      CLIENT_EXISTS=$(curl -sf "$KEYCLOAK_URL/admin/realms/master/clients?clientId=cfo-client" \
+        -H "Authorization: Bearer $ADMIN_TOKEN" \
+        | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['id'] if d else '')" 2>/dev/null || echo "")
+      if [[ -n "$CLIENT_EXISTS" ]]; then
+        # Update existing client to ensure directAccessGrantsEnabled
+        curl -sf -X PUT "$KEYCLOAK_URL/admin/realms/master/clients/$CLIENT_EXISTS" \
+          -H "Authorization: Bearer $ADMIN_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{"clientId":"cfo-client","enabled":true,"publicClient":true,"directAccessGrantsEnabled":true,"standardFlowEnabled":true,"redirectUris":["*"],"webOrigins":["*"]}' &>/dev/null || true
+        ok "Keycloak client: cfo-client (updated)"
+      else
+        HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$KEYCLOAK_URL/admin/realms/master/clients" \
+          -H "Authorization: Bearer $ADMIN_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{"clientId":"cfo-client","enabled":true,"publicClient":true,"directAccessGrantsEnabled":true,"standardFlowEnabled":true,"redirectUris":["*"],"webOrigins":["*"]}')
+        if [[ "$HTTP" == "201" ]]; then
+          ok "Keycloak client: cfo-client (created)"
+        else
+          warn "Keycloak client cfo-client: HTTP $HTTP"
+        fi
+      fi
       kc_create_user() {
         local username="$1" email="$2" fn="$3" ln="$4" pwd="$5"
         HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X POST \

@@ -146,21 +146,43 @@ export class AuthController {
 
     // Try to find user in tenant database to get role
     try {
-      const tenantId = req.headers['x-tenant-id'] || 'admin';
-      const userResult = await this.db.queryTenant(
-        tenantId,
+      const tenantId = req.headers['x-tenant-id'] || req.headers?.['X-Tenant-Id'] || 'admin';
+      let userResult = await this.db.queryTenant(
+        tenantId as string,
         'SELECT id, email, full_name, role, is_active FROM users WHERE email = $1 LIMIT 1',
         [email],
       );
 
+      // Not found in specified tenant — look up their memberships to find correct tenant
+      if (userResult.rows.length === 0) {
+        try {
+          const memberResult = await this.db.query(
+            `SELECT utm.tenant_id FROM user_tenant_memberships utm
+             JOIN system_users su ON su.id = utm.user_id
+             WHERE su.email = $1 LIMIT 1`,
+            [email],
+          );
+          if (memberResult.rows.length > 0) {
+            const correctTenantId = memberResult.rows[0].tenant_id;
+            userResult = await this.db.queryTenant(
+              correctTenantId,
+              'SELECT id, email, full_name, role, is_active FROM users WHERE email = $1 LIMIT 1',
+              [email],
+            );
+          }
+        } catch (_) { /* membership lookup failed, continue */ }
+      }
+
       if (userResult.rows.length > 0) {
         const dbUser = userResult.rows[0];
+        // Normalize tenant_admin → admin for frontend compatibility
+        const normalizedRole = dbUser.role === 'tenant_admin' ? 'admin' : dbUser.role;
         return {
           success: true,
           data: {
             email: dbUser.email,
             username: dbUser.email,
-            role: dbUser.role,
+            role: normalizedRole,
             full_name: dbUser.full_name,
             is_active: dbUser.is_active,
             is_super_admin: false,
@@ -172,13 +194,20 @@ export class AuthController {
       // If DB query fails, continue with JWT data only
     }
 
-    // Fallback: return JWT data without role
+    // Fallback: derive role from JWT roles already processed by the guard
+    const jwtRole = roles.includes('super_admin') ? 'super_admin'
+      : roles.includes('tenant_admin') || roles.includes('admin') ? 'admin'
+      : roles.includes('finance_manager') ? 'admin'
+      : roles.includes('analyst') ? 'analyst'
+      : roles.includes('viewer') ? 'viewer'
+      : 'viewer';
+
     return {
       success: true,
       data: {
         email,
         username: email,
-        role: 'viewer',
+        role: jwtRole,
         is_super_admin: false,
         ...jwtUser,
       },

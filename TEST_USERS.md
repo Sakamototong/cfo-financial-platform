@@ -2,29 +2,47 @@
 
 ## 🔐 User Credentials
 
-### Super Admin (Keycloak Admin)
-- **Username**: `kc-superadmin`
-- **Password**: `Secret123!`
+### Super Admin
+- **Username**: `superadmin`
+- **Password**: `SuperAdmin123!`
 - **Role**: System Administrator
 - **Access**: Full system access, cross-tenant operations
 
-### Company Admin (CFO)
-- **Username**: `demo-admin@testco.local`
+> Quick demo: `admin` / `admin` (bypasses Keycloak — local dev only)
+
+### Company Admin (CFO) — Tenant: admin
+- **Username**: `admin-user`
 - **Password**: `Secret123!`
 - **Role**: admin
-- **Access**: Full access within testco tenant
+- **Access**: Full access within admin tenant
 
-### Financial Analyst
-- **Username**: `analyst@testco.local`
+### Company Admin (CFO) — Tenant: Acme Corp
+- **Username**: `acme-admin`
 - **Password**: `Secret123!`
-- **Role**: analyst  
+- **Role**: admin
+- **Access**: Full access within Acme Corp tenant
+
+### Financial Analyst — Tenant: admin
+- **Username**: `analyst-user`
+- **Password**: `Secret123!`
+- **Role**: analyst
 - **Access**: Create/edit financial data, run scenarios & projections
 
-### Viewer (Executive)
-- **Username**: `viewer@testco.local`
+### Financial Analyst — Tenant: Acme Corp
+- **Username**: `acme-analyst`
+- **Password**: `Secret123!`
+- **Role**: analyst
+
+### Viewer (Executive) — Tenant: admin
+- **Username**: `viewer-user`
 - **Password**: `Secret123!`
 - **Role**: viewer
 - **Access**: Read-only access to reports and dashboards
+
+### Viewer (Executive) — Tenant: Acme Corp
+- **Username**: `acme-viewer`
+- **Password**: `Secret123!`
+- **Role**: viewer
 
 ---
 

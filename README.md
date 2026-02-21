@@ -1,664 +1,310 @@
-# CFO Platform POC - Phase 1
+# 🚀 CFO Platform
 
-Financial Planning & Analysis Platform - Proof of Concept
+**Financial Planning & Analysis Platform** — ระบบวิเคราะห์และวางแผนทางการเงินแบบ Multi-Tenant
+
+![Docker](https://img.shields.io/badge/Docker-Compose-blue) ![NestJS](https://img.shields.io/badge/Backend-NestJS-red) ![React](https://img.shields.io/badge/Frontend-React%2BVite-cyan) ![PostgreSQL](https://img.shields.io/badge/DB-PostgreSQL%2015-blue) ![Keycloak](https://img.shields.io/badge/Auth-Keycloak%2021-green)
+
+---
 
 ## 📋 Overview
 
-Complete full-stack implementation with:
-- **Backend**: NestJS + PostgreSQL + Keycloak (77 API endpoints)
-- **Frontend**: React + TypeScript + Vite + Chart.js
-- **Infrastructure**: Docker Compose for local development
-- **Authentication**: JWT with automatic token refresh
+Platform สำหรับ CFO ครอบคลุม:
 
-## 🚀 Quick Start
+- 🏢 **Multi-Tenant** — แต่ละบริษัทมี PostgreSQL database แยกกัน
+- 📊 **Financial Statements** — งบการเงิน, line items, scenarios
+- 🔐 **RBAC** — SuperAdmin / Admin / Analyst / Viewer
+- 📈 **Projections** — Projection engine พร้อม templates
+- 📦 **ETL** — นำเข้าข้อมูลจาก CSV / QuickBooks
+- 🔑 **Keycloak 21** — JWT authentication ครบวงจร
+- 📋 **Audit Logging** — บันทึกทุก action สำหรับ compliance
+
+---
+
+## ⚡ Quick Start (Local / UAT)
 
 ### Prerequisites
 
-- Docker Desktop (with Docker Compose)
-- Node.js 18+
-- PowerShell (Windows) or Bash (Mac/Linux)
+- Docker Desktop (with Docker Compose v2)
+- Bash shell (macOS / Linux)
 
-### 1. Start Backend Services
-
-Before starting the compose stack, set a `KMS_MASTER_KEY` environment variable (example):
+### 1. Clone and Setup
 
 ```bash
-export KMS_MASTER_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('base64'))")
+git clone <repo>
+cd project-cfo-poc-4
 ```
 
-```powershell
-cd infra
-docker-compose up -d
-docker ps  # Verify all containers are "Up"
-```
-
-Services available at:
-- **Backend API**: http://localhost:3000
-- **Swagger Docs**: http://localhost:3000/api
-- **Keycloak**: http://localhost:8081
-- **PostgreSQL**: localhost:5432
-
-### 2. Start Frontend
-
-```powershell
-cd frontend
-npm install --legacy-peer-deps  # First time only
-npm run dev
-```
-
-Frontend available at: **http://localhost:5173**
-
-Note: The frontend reads the API base URL from the Vite env variable `VITE_API_BASE` at build time (default `http://localhost:3000`).
-For development you can keep the default; for a production build set it before running `npm run build`, for example:
+### 2. Start Everything (One Command)
 
 ```bash
-VITE_API_BASE=http://localhost:3000 npm run build
-# then copy `dist` into the nginx image used by docker-compose
+./uat-setup.sh
 ```
 
-Alternatively create a `.env.production` in the `frontend/` folder with `VITE_API_BASE=http://localhost:3000` before building.
+Script จะทำโดยอัตโนมัติ:
+1. ตรวจสอบ Docker daemon
+2. Start containers (`docker compose up -d --build`)
+3. สร้าง schema บน database กลาง
+4. สร้าง tenants ผ่าน API
+5. Apply schema migrations บน tenant databases
+6. Seed ข้อมูลเริ่มต้น (users, COA, superadmin)
+7. สร้าง Keycloak users
+8. Verify ผลลัพธ์
 
-Note about Docker Compose: the compose setup builds the frontend image with the build-arg `VITE_API_BASE=http://backend:3000` so the production bundle inside the container points to the `backend` service on the Docker network. If you need to override this, edit `infra/docker-compose.yml` build args or set `VITE_API_BASE` before building.
+**Flags:**
+```bash
+./uat-setup.sh --skip-build     # ข้าม docker build (เร็วขึ้น หากไม่มีการเปลี่ยน code)
+./uat-setup.sh --skip-keycloak  # ข้าม Keycloak user creation
+./uat-setup.sh --reset          # ลบ volumes แล้ว setup ใหม่ทั้งหมด
+```
 
-### OpenAI Assistant in Swagger
-
-We integrated a small OpenAI-powered assistant into the Swagger UI served at `http://localhost:3000/api`.
-
-- To enable it, set an OpenAI API key in your environment before starting the compose stack:
+### 3. Alternative: Start/Stop Only
 
 ```bash
-export OPENAI_API_KEY="sk-..."
-export KMS_MASTER_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('base64'))")
-cd infra
-docker-compose up -d --build
+./start.sh     # Start containers
+./stop.sh      # Stop containers
 ```
 
-- The compose file already forwards `OPENAI_API_KEY` into the `backend` container. If you do not set the key the assistant UI will still show but the server will reply with a message saying the key is not configured.
+---
 
-- The assistant uses a compact summary of the OpenAPI spec to provide context to the model. If you want more detailed responses you can extend the assistant by including schemas and parameters (I can help enable that).
+## 🌐 Service URLs
 
-### 3. Login
+| Service       | URL                           |
+|---------------|-------------------------------|
+| Frontend      | http://localhost:8080         |
+| Backend API   | http://localhost:3000         |
+| Swagger Docs  | http://localhost:3000/api     |
+| Keycloak      | http://localhost:8081         |
+| Keycloak Admin| http://localhost:8081/admin   |
+| PostgreSQL    | localhost:5432                |
+| Redis         | localhost:6379                |
 
-- URL: http://localhost:5173
-- Username: `admin`
-- Password: `admin`
+---
 
-## 🏗️ Architecture
+## 🔑 Default Accounts
+
+### Login Credentials
+
+| Username          | Password        | Role             | Tenant      |
+|-------------------|-----------------|------------------|-------------|
+| `superadmin`      | `SuperAdmin123!`| Super Admin      | (ทุก tenant)|
+| `admin-user`      | `Secret123!`    | Admin            | admin       |
+| `analyst-user`    | `Secret123!`    | Analyst          | admin       |
+| `viewer-user`     | `Secret123!`    | Viewer           | admin       |
+| `acme-admin`      | `Secret123!`    | Admin            | Acme Corp   |
+| `acme-analyst`    | `Secret123!`    | Analyst          | Acme Corp   |
+| `acme-viewer`     | `Secret123!`    | Viewer           | Acme Corp   |
+
+> **Quick demo (local only):** `admin` / `admin` → ได้รับ Super Admin demo token โดยไม่ต้องผ่าน Keycloak
+
+### Keycloak Admin Console
+
+| URL | Username | Password |
+|-----|----------|----------|
+| http://localhost:8081/admin | `admin`  | `admin`  |
+
+### Demo Tokens (Local Dev)
+
+สำหรับ development สามารถใช้ demo tokens โดยตรงโดยไม่ต้อง login:
+
+| Token                        | Role          |
+|------------------------------|---------------|
+| `demo-token-super-admin`     | SuperAdmin    |
+| `demo-token-admin`           | Admin         |
+| `demo-token-analyst`         | Analyst       |
+| `demo-token-viewer`          | Viewer        |
+
+```bash
+curl -H "Authorization: Bearer demo-token-super-admin" http://localhost:3000/tenant
+```
+
+---
+
+## 🏢 Default Tenants
+
+| Tenant ID              | Name       | Database                          |
+|------------------------|------------|-----------------------------------|
+| `admin`                | Admin Org  | `tenant_admin_tenant_admin`       |
+| `155cf73a2fe388f0`     | Acme Corp  | `tenant_acme_corp_155cf73a2fe388f0` |
+
+---
+
+## 📁 Project Structure
 
 ```
 project-cfo-poc-4/
-├── backend/              # NestJS API (77 endpoints)
+├── backend/                  # NestJS API
 │   ├── src/
-│   │   ├── auth/        # JWT authentication
-│   │   ├── tenant/      # Multi-tenant management
-│   │   ├── financial/   # Statements & line items
-│   │   ├── scenarios/   # Scenario management
-│   │   ├── dim/         # Dimension configuration
-│   │   ├── admin/       # System admin & ETL
-│   │   ├── workflow/    # Approval workflows
-│   │   └── ... (4 more modules)
-│   └── Dockerfile
-├── frontend/            # React + Vite
-│   ├── src/
-│   │   ├── api/        # Axios client with token refresh
-│   │   ├── pages/      # Login, Dashboard, Scenarios, Financials
-│   │   ├── components/ # Custom modal, etc.
-│   │   └── styles.css
+│   │   ├── auth/            # JWT + Keycloak
+│   │   ├── tenant/          # Multi-tenant management
+│   │   ├── financial/       # Statements & line items
+│   │   ├── scenarios/       # Scenario management
+│   │   ├── dim/             # Dimension configuration
+│   │   ├── admin/           # System admin & ETL
+│   │   ├── workflow/        # Approval workflows
+│   │   ├── projections/     # Projection engine
+│   │   ├── consolidation/   # Consolidation module
+│   │   ├── reports/         # Reports & variance
+│   │   ├── audit/           # Audit logging
+│   │   └── database/        # DB pool management
+│   ├── Dockerfile
 │   └── package.json
-└── infra/              # Docker infrastructure
-    ├── docker-compose.yml
-    ├── get-token.ps1
-    └── test-all-apis.ps1
+├── frontend/                 # React + TypeScript + Vite
+│   ├── src/
+│   │   ├── api/             # Axios client + token refresh
+│   │   ├── pages/           # Login, Dashboard, etc.
+│   │   └── components/      # UI components
+│   └── Dockerfile
+├── infra/                    # Infrastructure
+│   ├── docker-compose.yml   # All services
+│   ├── init/                # DB init SQL scripts
+│   └── *.sql                # Migration scripts
+├── uat-setup.sh             # UAT/local setup script
+├── start.sh                 # Start containers
+├── stop.sh                  # Stop containers
+└── README.md
 ```
 
-## ✅ Features Implemented
+---
 
-### Backend (77 API Endpoints)
+## 📡 API Modules
 
-**Modules:**
-- ✅ Authentication (JWT with Keycloak)
-- ✅ Multi-tenant management
-- ✅ Financial statements & line items (CRUD)
-- ✅ Scenario & assumption management
-- ✅ Dimension configuration (DIM)
-- ✅ System administration & ETL
-- ✅ Approval workflow
-- ✅ Projections engine
-- ✅ Consolidation
-- ✅ Reports & variance analysis
-- ✅ Audit logging
+| Module          | Prefix                  | Description                        |
+|-----------------|-------------------------|------------------------------------|
+| Auth            | `/auth`                 | Login, refresh, Keycloak callback  |
+| Tenant          | `/tenant`               | Tenant CRUD                        |
+| Financial       | `/financial`            | Statements, line items             |
+| Scenarios       | `/scenarios`            | Scenario management                |
+| DIM             | `/dim`                  | Dimension config                   |
+| Admin           | `/admin`                | ETL, system admin                  |
+| Workflow        | `/workflow`             | Approval workflows                 |
+| Projections     | `/projections`          | Projection engine                  |
+| Consolidation   | `/consolidation`        | Cross-tenant consolidation         |
+| Reports         | `/reports`              | Variance & drill-down reports      |
+| Audit           | `/audit`                | Audit trail                        |
+| Super Admin     | `/super-admin`          | System-level management            |
 
-**API Documentation:**
-- Full OpenAPI/Swagger at `/api`
-- Bearer token authentication
-- All endpoints tested (100% passing)
+**Full OpenAPI spec:** http://localhost:3000/api
 
-### Frontend
+---
 
-**Pages:**
-- ✅ Login with token storage
-- ✅ Dashboard with aggregated charts
-- ✅ Scenarios (list + create form)
-- ✅ Financials (list + create with dynamic line items)
-- ✅ Statement Detail (Chart.js visualization)
-- ✅ Statement Edit (validation, undo, save options)
+## 🛠️ npm Commands
 
-**Features:**
-- ✅ Automatic token refresh with queue
-- ✅ Form validation with inline errors
-- ✅ Responsive design (mobile-friendly)
-- ✅ Chart.js data visualization
-- ✅ Custom modal with accessibility
-- ✅ Save as New / Replace Original
-
-## 📡 Key API Endpoints
-
-### Authentication
-```
-POST   /auth/login       Get JWT tokens
-POST   /auth/refresh     Refresh access token
+```bash
+npm start           # Start all containers
+npm stop            # Stop all containers
+npm run health      # Run health checks
+npm run status      # Show container status
+npm run logs        # Tail all container logs
+npm run logs:backend   # Backend logs only
+npm run logs:frontend  # Frontend logs only
+npm run logs:db        # Database logs only
+npm run restart     # Restart all containers
+npm run clean       # Stop + remove volumes (WIPE DATA)
 ```
 
-### Tenants
-```
-POST   /tenant           Create tenant
-GET    /tenant/:id       Get tenant details
-```
+---
 
-### Financial Statements
-```
-POST   /financial/statements              Create statement
-GET    /financial/statements              List statements
-GET    /financial/statements/:id          Get statement details
-PUT    /financial/statements/:id/status   Update status
-DELETE /financial/statements/:id          Delete statement
-```
+## 📚 Documentation
 
-### Scenarios
-```
-POST   /scenarios        Create scenario
-GET    /scenarios        List scenarios
-GET    /scenarios/:id    Get scenario details
-PUT    /scenarios/:id    Update scenario
-DELETE /scenarios/:id    Delete scenario
-```
+| Document                    | Description                          |
+|-----------------------------|--------------------------------------|
+| [docs/USER_GUIDE_ONE_COMPANY.md](docs/USER_GUIDE_ONE_COMPANY.md) | **คู่มือการใช้งานสำหรับผู้ใช้ในบริษัท** (Admin / Analyst / Viewer) |
+| [USER_JOURNEY.md](USER_JOURNEY.md)                  | User journey แต่ละ role             |
+| [USER_JOURNEY_QUICK_REF.md](USER_JOURNEY_QUICK_REF.md)  | Quick reference card                 |
+| [MENU-PERMISSIONS.md](MENU-PERMISSIONS.md)         | RBAC menu permissions matrix         |
+| [TEST_USERS.md](TEST_USERS.md)               | Test user credentials                |
+| [TENANT_USERS.md](TENANT_USERS.md)             | Tenant user details                  |
+| [TEST-E2E-GUIDE.md](TEST-E2E-GUIDE.md)           | End-to-end test guide                |
+| [TEST-E2E-README.md](TEST-E2E-README.md)          | E2E test setup readme                |
+| [UAT-DEPLOYMENT-GUIDE.md](UAT-DEPLOYMENT-GUIDE.md)     | UAT deployment instructions          |
+| [UAT-READINESS-REPORT.md](UAT-READINESS-REPORT.md)     | UAT readiness checklist              |
+| [UAT-README.md](UAT-README.md)               | UAT overview                         |
+| [TRANSFER-OWNERSHIP-UI-GUIDE.md](TRANSFER-OWNERSHIP-UI-GUIDE.md) | Transfer ownership guide    |
+| [SECURITY.md](SECURITY.md)                 | Security policy                      |
+| [CHANGELOG.md](CHANGELOG.md)                | Version history                      |
+| [CONTRIBUTING.md](CONTRIBUTING.md)             | Contribution guidelines              |
 
-**See Swagger at http://localhost:3000/api for all 77 endpoints**
+---
 
-## 🔧 Development
+## 🏗️ Tech Stack
 
-### Backend Development
+| Layer          | Technology                      |
+|----------------|---------------------------------|
+| Backend        | NestJS 10, TypeScript           |
+| Frontend       | React 18, TypeScript, Vite      |
+| Database       | PostgreSQL 15 (per-tenant DB)   |
+| Cache          | Redis 7                         |
+| Auth           | Keycloak 21, JWT                |
+| Containerization | Docker Compose v2             |
+| Encryption     | AES-256-GCM (envelope KMS)     |
+| Logging        | Winston (structured JSON)       |
 
-```powershell
-cd backend
-npm install --legacy-peer-deps
-npm run build
+---
 
-# Rebuild Docker container
-cd ../infra
-docker-compose up -d --build backend
-```
+## 🔐 Security
 
-### Frontend Development
+- **Per-Tenant Isolation** — แต่ละ tenant มี PostgreSQL database แยก
+- **Envelope Encryption** — Tenant DB passwords เข้ารหัสด้วย KMS master key (AES-256-GCM)
+- **JWT Verification** — Keycloak JWKS endpoint validation
+- **RBAC** — SuperAdmin / Admin / Analyst / Viewer roles
+- **Audit Trail** — บันทึกทุก action ใน `audit_log` table
+- **Rate Limiting** — ป้องกัน brute force
 
-```powershell
-cd frontend
-npm install <package> --legacy-peer-deps
-npm run build          # Production build
-npm run preview        # Preview production
-```
+### KMS Configuration
 
-### Testing APIs
+```bash
+# Production: set before starting
+export KMS_MASTER_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('base64'))")
 
-```powershell
-cd infra
-.\test-all-apis.ps1    # Test all 77 endpoints
-.\get-token.ps1        # Get JWT token (copied to clipboard)
-```
-
-Or use Swagger UI at http://localhost:3000/api
-
-## 🐳 Docker Management
-
-### View Logs
-
-```powershell
-docker logs infra-backend-1 -f
-docker logs infra-db-1 -f
-docker logs infra-keycloak-1 -f
+# Local dev: ถ้าไม่ set จะใช้ ephemeral key (ข้อมูลหาย ถ้า restart)
 ```
 
-### Restart Services
+See [SECURITY.md](SECURITY.md) for full details.
 
-```powershell
-cd infra
-docker-compose restart backend
-docker-compose restart           # All services
-docker-compose down              # Stop all
-docker-compose down -v           # Stop + remove volumes
+---
+
+## 🔧 Troubleshooting
+
+### Containers ไม่ start
+
+```bash
+# ดู logs
+docker compose -f infra/docker-compose.yml logs --tail=50
+
+# Restart
+npm run restart
 ```
 
-## 🔑 Authentication Flow
+### Reset ทั้งหมด (ลบข้อมูล)
 
-1. Frontend: `POST /auth/login` → Backend → Keycloak
-2. Backend returns `access_token` + `refresh_token`
-3. Frontend stores tokens in localStorage
-4. Axios interceptor adds `Authorization: Bearer <token>` to requests
-5. On 401: interceptor calls `POST /auth/refresh` automatically
-6. Queue prevents concurrent refresh requests
-
-## 🛠️ Troubleshooting
-
-### Backend won't start
-
-```powershell
-docker logs infra-backend-1 --tail 50
-cd infra
-docker-compose down
-docker-compose up -d --build backend
-```
-
-### Frontend CORS errors
-
-CORS is enabled for `localhost:5173`, `localhost:5174`, `localhost:3001` in [backend/src/main.ts](backend/src/main.ts#L9-L12)
-
-If using different port, update and rebuild backend.
-
-### Database connection issues
-
-```powershell
-docker ps | Select-String db         # Check if running
-cd infra
-docker-compose down -v               # Reset database
-docker-compose up -d db
+```bash
+./uat-setup.sh --reset
 ```
 
 ### Port conflicts
 
-**Ports used:** 3000 (backend), 5173 (frontend), 8081 (keycloak), 5432 (postgres)
+| Port | Service  | Fix                              |
+|------|----------|----------------------------------|
+| 8080 | Frontend | `lsof -ti:8080 | xargs kill`    |
+| 3000 | Backend  | `lsof -ti:3000 | xargs kill`    |
+| 5432 | Postgres | Stop local PostgreSQL            |
+| 8081 | Keycloak | `lsof -ti:8081 | xargs kill`    |
 
-Modify in `docker-compose.yml` or `vite.config.ts` if needed.
+### KMS Warning บน startup
 
-### Token refresh fails
+```
+⚠️  KMS_MASTER_KEY not set — using ephemeral key
+```
 
-Check browser Console:
-- Tokens missing from localStorage? Login again
-- Keycloak down? Check `docker ps`
-- Token expired beyond refresh window? Login again
-
-## 📊 Database Schema
-
-**Multi-tenant:** One database per tenant
-
-**Key Tables:**
-- `financial_statements` - Statement headers
-- `financial_line_items` - Line items with amounts
-- `scenarios` - Planning scenarios
-- `dimensions` - DIM templates
-- `approval_chains` - Workflow definitions
-- `approval_requests` - Workflow instances
-
-## ETL / Mapping (สถานะปัจจุบัน)
-
-- ETL preview/import endpoints รองรับการส่ง mapping (ผ่าน header `x-mapping`).
-- หน้า `ETL` ใน frontend: เพิ่มปุ่ม `Load example` และส่ง mapping เมื่อทำ Preview/Upload.
-- มีสคริปต์ในโฟลเดอร์ `scripts/` สำหรับสร้างตัวอย่าง mapping, สร้าง/เชื่อม DIM entries, อัปเดตโค้ดมิติ, และ normalize โครงสร้าง mapping template.
-- เทมเพลตตัวอย่าง `etl.mapping.advanced_pl` ได้ถูก normalize ไปยังรูปแบบ `{ column, source, original }` แล้ว.
-
-งานที่เหลือ (สรุปสั้น):
-- ปรับปรุงหน้า UI ให้เลือก mapping ก่อน preview/import (UX + validation).
-- รันสคริปต์ normalize/update ข้าม tenants ตามนโยบาย (ต้องยืนยันก่อนรันในทุก tenant).
-- ทดสอบ end-to-end สำหรับ import ด้วย mapping หลายแบบและหลาย tenant.
-- ปรับปรุง error handling / toast messages ใน UI สำหรับ ETL flows.
-
-
-## 🎯 Credentials
-
-**Frontend Login:**
-- Username: `admin`
-- Password: `admin`
-
-**Keycloak Admin** (http://localhost:8081):
-- Username: `admin`
-- Password: `admin`
-
-**PostgreSQL** (localhost:5432):
-- Database: `postgres`
-- Username: `postgres`
-- Password: `postgres`
-
-## 📈 Next Steps / Production TODO
-
-**Security:**
-- [ ] Change default passwords
-- [ ] Use confidential Keycloak client
-- [ ] Add HTTPS/TLS
-- [ ] Implement secret management
-- [ ] Add rate limiting
-
-**Infrastructure:**
-- [ ] Proper Docker multi-stage builds
-- [ ] CI/CD pipeline
-- [ ] Database backups & replication
-- [ ] Monitoring (Prometheus, Grafana)
-- [ ] Health checks
-
-**Backend:**
-- [ ] Unit & integration tests
-- [ ] Implement business logic (currently stubs)
-- [ ] Add pagination
-- [ ] Error handling & logging
-- [ ] Database migrations
-- [ ] Query optimization
-
-**Frontend:**
-- [ ] Loading states & skeletons
-- [ ] Error boundaries
-- [ ] Offline support
-- [ ] Bundle optimization
-- [ ] E2E tests (Playwright)
-- [ ] State management (if needed)
-
-**Features:**
-- [ ] Complete approval workflows
-- [ ] Excel/CSV import UI
-- [ ] Financial projections
-- [ ] Consolidation logic
-- [ ] Advanced reporting
-- [ ] User management UI
+ไม่ใช่ error — ใช้งานได้ปกติ แต่ถ้า restart container ข้อมูล tenant passwords จะ decrypt ไม่ได้  
+**Solution:** Set `KMS_MASTER_KEY` ก่อน start หรือใช้ `./uat-setup.sh --reset` เพื่อ setup ใหม่
 
 ---
 
-**Built with:** NestJS • React • TypeScript • PostgreSQL • Keycloak • Docker • Vite • Chart.js
-
-**Status:** Phase 1 POC Complete ✅
-
-**Last Updated:** January 26, 2026
-
-## 📝 Dev Notes (added Jan 31, 2026)
-
-These notes record recent local-development actions to make the repo runnable and to create demo accounts.
-
-- Created tenant: `testco` (via `POST /tenant`).
-- Created tenant user record in the tenant DB:
-  - email: `demo-admin@testco.local`
-  - full_name: `Demo Admin`
-  - role: `admin`
-  - (tenant record id shown in API response when created)
-- Keycloak users created/updated:
-  - `kc-superadmin` — password set to `Secret123!` (realm admin role assigned)
-  - `demo-admin@testco.local` — password set to `Secret123!` (tenant admin candidate)
-
-Notes / how to use:
-- Keycloak admin console: http://localhost:8081 (admin/admin)
-- Login as tenant admin using Keycloak credentials: `demo-admin@testco.local` / `Secret123!`.
-- For quick API testing you can still use demo tokens (development only): `Authorization: Bearer demo-token-12345` — backend accepts any token that starts with `demo-token-` as a local dev convenience.
-
-Quick curl examples (dev):
-```bash
-# List tenants (demo token)
-curl -H "Authorization: Bearer demo-token-12345" http://localhost:3000/tenants | jq
-
-# Use tenant-scoped request (specify X-Tenant-Id)
-curl -H "Authorization: Bearer demo-token-12345" -H "X-Tenant-Id: testco" http://localhost:3000/financial/statements | jq
-
-# Login via backend (demo login flow)
-curl -X POST http://localhost:3000/auth/login -H "Content-Type: application/json" -d '{"username":"admin","password":"admin"}' | jq
-```
-
-Security reminder: these demo accounts and tokens are for local development only — change passwords and remove demo-token acceptance before any public deployment.
-
-# Create test user
-Invoke-RestMethod -Method Post -Uri "http://localhost:8081/admin/realms/master/users" -Headers @{
-  Authorization="Bearer $adminToken"
-  "Content-Type"="application/json"
-} -Body '{
-  "username":"tester",
-  "enabled":true,
-  "credentials":[{
-    "type":"password",
-    "value":"tester",
-    "temporary":false
-  }]
-}'
-```
-
-### 4. Test APIs
-
-#### Get Access Token
-```powershell
-$tokenResp = Invoke-RestMethod -Method Post -Uri "http://localhost:8081/realms/master/protocol/openid-connect/token" -Body @{
-  client_id="cfo-client"
-  client_secret="secret"
-  username="tester"
-  password="tester"
-  grant_type="password"
-}
-$token = $tokenResp.access_token
-```
-
-#### Create Tenant
-```powershell
-$tenant = Invoke-RestMethod -Method Post -Uri "http://localhost:3000/tenant" -Headers @{
-  Authorization="Bearer $token"
-  "Content-Type"="application/json"
-} -Body '{"name":"acmecorp"}'
-
-Write-Host "Tenant created: $($tenant.id)"
-```
-
-#### Create Financial Statement
-```powershell
-$statement = @{
-  statement = @{
-    statement_type = "PL"
-    period_type = "monthly"
-    period_start = "2026-01-01"
-    period_end = "2026-01-31"
-    scenario = "actual"
-    status = "draft"
-  }
-  lineItems = @(
-    @{
-      line_code = "REV-001"
-      line_name = "Product Sales"
-      line_order = 1
-      amount = 150000
-      currency = "THB"
-    }
-    @{
-      line_code = "REV-002"
-      line_name = "Service Revenue"
-      line_order = 2
-      amount = 50000
-      currency = "THB"
-    }
-    @{
-      line_code = "COGS-001"
-      line_name = "Cost of Goods Sold"
-      line_order = 3
-      amount = 80000
-      currency = "THB"
-    }
-    @{
-      line_code = "OPEX-001"
-      line_name = "Operating Expenses"
-      line_order = 4
-      amount = 40000
-      currency = "THB"
-    }
-  )
-} | ConvertTo-Json -Depth 10
-
-$result = Invoke-RestMethod -Method Post -Uri "http://localhost:3000/financial/statements" -Headers @{
-  Authorization="Bearer $token"
-  "Content-Type"="application/json"
-} -Body $statement
-
-Write-Host "Statement created: $($result.statement.id)"
-```
-
-#### Create Default Scenarios
-```powershell
-Invoke-RestMethod -Method Post -Uri "http://localhost:3000/scenarios/defaults" -Headers @{
-  Authorization="Bearer $token"
-}
-
-# List scenarios
-$scenarios = Invoke-RestMethod -Method Get -Uri "http://localhost:3000/scenarios" -Headers @{
-  Authorization="Bearer $token"
-}
-
-$scenarios | Format-Table scenario_name, scenario_type, is_active
-```
-
-## 🧪 Testing
-
-### Unit Tests
-
-```bash
-cd backend
-
-# Run all tests
-npm test
-
-# Watch mode
-npm run test:watch
-
-# Coverage report
-npm run test:cov
-```
-
-**Current Coverage:**
-- ✅ KmsService: 3 tests (encrypt/decrypt round-trip, IV randomness, empty string)
-- ✅ TenantService: 2 tests (service instantiation, getTenant with null)
-
-**Test Results:**
-```
-Test Suites: 2 passed, 2 total
-Tests:       5 passed, 5 total
-Time:        7.942s
-```
-
-### End-to-End (E2E) Tests
-
-**✅ 100% Test Success Rate - Production Ready**
-
-Complete end-to-end testing covering the entire user journey from Super Admin setup to multi-role financial operations.
-
-**Quick Start:**
-```bash
-# Run E2E test suite (auto-installs dependencies)
-./run-e2e-test.sh
-
-# Or run directly with Python
-python3 test-company-e2e.py
-```
-
-**Test Coverage:** 16 phases testing:
-- ✅ Phase 0: Pre-flight Setup & System Validation
-- ✅ Phase 1-2: Tenant & User Provisioning
-- ✅ Phase 3-5: Financial Statements (CRUD operations)
-- ✅ Phase 6-7: Scenario Management & Budget Planning
-- ✅ Phase 8-10: Financial Projections & Analysis
-- ✅ Phase 11-12: Drill-Down Reports & Charts
-- ✅ Phase 13-14: ETL Data Import (CSV/Excel)
-- ✅ Phase 15: Multi-Role Access Control (RBAC)
-
-**Test Results:**
-```
-=== FINAL RESULTS ===
-✅ Passed: 16/16 phases (100.0%)
-❌ Failed: 0 phases
-⏱️  Duration: 24.3 seconds
-📊 API Calls: 26 requests
-🔒 Auth: 4 roles tested (Super Admin, Admin, Analyst, Viewer)
-```
-
-**Documentation:**
-- [UAT Readiness Report](UAT-READINESS-REPORT.md) - Production readiness assessment
-- [E2E Test Guide](TEST-E2E-GUIDE.md) - Comprehensive testing documentation
-- [Quick Reference](TEST-E2E-README.md) - Quick start guide
-
-**CI/CD Integration:**
-```yaml
-# Example GitHub Actions workflow
-- name: Run E2E Tests
-  run: |
-    export KMS_MASTER_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('base64'))")
-    cd infra && docker-compose up -d && cd ..
-    sleep 30  # Wait for services
-    ./run-e2e-test.sh
-```
-
-## 🔄 CI/CD Pipeline
-
-GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push:
-
-1. **Setup**: Checkout code, install Node.js 18
-2. **Database**: Start Postgres 15 service container
-3. **Dependencies**: Run `npm ci`
-4. **Tests**: Run `npm test` with coverage
-5. **Build**: Run `npm run build` (TypeScript compilation)
-6. **Upload**: Send coverage to Codecov
-
-## 📊 Monitoring & Logging
-
-### Structured Logs (Winston)
-```json
-{
-  "level": "info",
-  "message": "Creating tenant",
-  "name": "testcorp",
-  "timestamp": "2026-01-26T07:23:06.019Z"
-}
-```
-
-### Query Logging
-All database queries logged with:
-- Execution time (ms)
-- Row count
-- Query text (truncated)
-
-### Audit Trail
-All financial data changes tracked in `audit_log`:
-- Entity type and ID
-- Action (create/update/delete/approve/lock)
-- Changes (JSONB with old/new values)
-- User and IP address
-
-## 🔐 Security Features
-
-- **Per-Tenant Isolation**: Each tenant has separate PostgreSQL database
-- **Envelope Encryption**: Tenant DB passwords encrypted with KMS master key
-- **JWT Verification**: Keycloak JWKS endpoint validation with issuer + audience checks
-- **Connection Pooling**: Prevents connection exhaustion (max 20)
-- **Audit Logging**: Compliance-ready audit trail for GDPR/PDPA
-
-## 🛣️ Roadmap
-
-### Phase 2 - Connected Platform (Q2 2026)
-- [ ] Replace mock KMS with AWS KMS
-- [ ] Add DSR (Data Subject Request) endpoints
-- [ ] Implement RBAC with Keycloak roles
-- [ ] Add rate limiting (express-rate-limit)
-- [ ] ERP/e-Tax/Bank integrations
-- [ ] Payment gateway integration
-
-### Phase 3 - AI CFO Platform (Q3 2026)
-- [ ] AI document extraction (PP.30)
-- [ ] AI-powered forecasting
-- [ ] Anomaly detection
-- [ ] AI scenario recommendations
-
 ## 📝 License
 
-Proprietary - Internal POC
+Proprietary — Internal Use Only
 
-## 🤝 Contributing
+---
 
-1. Create feature branch
-2. Write tests for new features
-3. Ensure `npm test` passes
-4. Build succeeds (`npm run build`)
-5. Submit PR with clear description
+*Last Updated: February 21, 2026*
