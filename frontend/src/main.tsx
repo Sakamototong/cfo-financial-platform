@@ -136,7 +136,7 @@ function ConditionalLayout() {
         <Route path="/workflow" element={<ProtectedRoute><RequireRole role="analyst"><Workflow/></RequireRole></ProtectedRoute>} />
 
         {/* Admin+ routes */}
-        <Route path="/tenants" element={<ProtectedRoute><RequireRole role="admin"><Tenants/></RequireRole></ProtectedRoute>} />
+        <Route path="/tenants" element={<ProtectedRoute><RequireRole role="super_admin"><Tenants/></RequireRole></ProtectedRoute>} />
         <Route path="/financials/:id/edit" element={<ProtectedRoute><RequireRole role="admin"><StatementEdit/></RequireRole></ProtectedRoute>} />
         <Route path="/admin" element={<ProtectedRoute><RequireRole role="admin"><Admin/></RequireRole></ProtectedRoute>} />
         <Route path="/billing" element={<ProtectedRoute><RequireRole role="admin"><Billing/></RequireRole></ProtectedRoute>} />

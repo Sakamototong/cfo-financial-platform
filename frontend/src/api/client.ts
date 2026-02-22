@@ -26,10 +26,14 @@ async function refreshAccessToken(refreshToken: string) {
 }
 
 let isRefreshing = false
-let refreshQueue: Array<(token?: string) => void> = []
+let refreshQueue: Array<{ resolve: (token: string) => void; reject: (err: any) => void }> = []
 
 function processQueue(error: any, token: string | null = null) {
-  refreshQueue.forEach(cb => cb(token || undefined))
+  refreshQueue.forEach(({ resolve, reject }) => {
+    if (error) reject(error)
+    else if (token) resolve(token)
+    else reject(new Error('No token available'))
+  })
   refreshQueue = []
 }
 
@@ -168,10 +172,13 @@ api.interceptors.response.use(
       if (!refreshToken) return Promise.reject(error)
 
       if (isRefreshing) {
-        return new Promise((resolve) => {
-          refreshQueue.push((token?: string) => {
-            if (token && originalRequest.headers) originalRequest.headers['Authorization'] = `Bearer ${token}`
-            resolve(api(originalRequest))
+        return new Promise((resolve, reject) => {
+          refreshQueue.push({
+            resolve: (token: string) => {
+              if (originalRequest.headers) originalRequest.headers['Authorization'] = `Bearer ${token}`
+              resolve(api(originalRequest))
+            },
+            reject,
           })
         })
       }
@@ -184,7 +191,7 @@ api.interceptors.response.use(
           localStorage.setItem('access_token', newToken)
           if (originalRequest.headers) originalRequest.headers['Authorization'] = `Bearer ${newToken}`
         }
-        processQueue(null, newToken)
+        processQueue(null, newToken ?? null)
         return api(originalRequest)
       } catch (e) {
         processQueue(e as any, null)

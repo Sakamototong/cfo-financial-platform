@@ -17,6 +17,7 @@ echo ""
 
 ERRORS=0
 WARNINGS=0
+FRONTEND_PORT=${FRONTEND_PORT:-8080}
 
 # Function to check and report
 check_service() {
@@ -48,6 +49,27 @@ check_warning() {
         return 1
     fi
 }
+
+# Pre-flight: check port availability before services start
+check_port_available() {
+    local port=$1
+    local name=$2
+    if nc -z localhost "$port" 2>/dev/null; then
+        echo -e "${YELLOW}⚠️  Port ${port} (${name}) is already in use${NC}"
+        ((WARNINGS++))
+        return 1
+    else
+        echo -e "${GREEN}✅ Port ${port} (${name}) is available${NC}"
+        return 0
+    fi
+}
+
+echo "🔌 Pre-flight: checking port availability..."
+check_port_available 3000 "Backend"
+check_port_available "${FRONTEND_PORT}" "Frontend (override with FRONTEND_PORT=<port>)"
+check_port_available 5432 "PostgreSQL"
+check_port_available 8081 "Keycloak"
+echo ""
 
 # Check Docker
 echo "🐳 Checking Docker..."
@@ -102,7 +124,7 @@ echo ""
 # Check ports
 echo "🔌 Checking ports..."
 check_service "Backend port (3000)" "nc -z localhost 3000"
-check_service "Frontend port (5173)" "nc -z localhost 5173"
+check_service "Frontend port (${FRONTEND_PORT})" "nc -z localhost ${FRONTEND_PORT}"
 check_service "Database port (5432)" "nc -z localhost 5432"
 check_service "Keycloak port (8081)" "nc -z localhost 8081"
 echo ""

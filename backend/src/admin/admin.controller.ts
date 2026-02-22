@@ -35,7 +35,7 @@ export class AdminController {
    */
   @Post('init/tenant')
   async initTenantAdminSchema(@Req() req: any) {
-    const tenantId = req.user?.preferred_username || req.user?.sub;
+    const tenantId = (req.headers?.['x-tenant-id'] as string) || req.user?.preferred_username || req.user?.sub;
     await this.adminService.createTenantAdminSchema(tenantId);
     return { message: 'Tenant admin schema initialized successfully' };
   }
@@ -56,7 +56,7 @@ export class AdminController {
    */
   @Get('config/:key')
   async getConfig(@Req() req: any, @Param('key') key: string) {
-    const tenantId = req.user?.preferred_username || req.user?.sub;
+    const tenantId = (req.headers?.['x-tenant-id'] as string) || req.user?.preferred_username || req.user?.sub;
     return this.adminService.getConfig(key, tenantId);
   }
 
@@ -68,7 +68,7 @@ export class AdminController {
     @Req() req: any,
     @Query('system_only') systemOnly?: string,
   ) {
-    const tenantId = req.user?.preferred_username || req.user?.sub;
+    const tenantId = (req.headers?.['x-tenant-id'] as string) || req.user?.preferred_username || req.user?.sub;
     return this.adminService.listConfigs(tenantId, systemOnly === 'true');
   }
 
@@ -88,7 +88,7 @@ export class AdminController {
    */
   @Post('etl-params')
   async setEtlParameter(@Req() req: any, @Body() body: EtlParameter) {
-    const tenantId = req.user?.preferred_username || req.user?.sub;
+    const tenantId = (req.headers?.['x-tenant-id'] as string) || req.user?.preferred_username || req.user?.sub;
     body.created_by = req.user?.email || req.user?.preferred_username;
     return this.adminService.setEtlParameter(tenantId, body);
   }
@@ -102,7 +102,7 @@ export class AdminController {
     @Param('name') name: string,
     @Query('effective_date') effectiveDate?: string,
   ) {
-    const tenantId = req.user?.preferred_username || req.user?.sub;
+    const tenantId = (req.headers?.['x-tenant-id'] as string) || req.user?.preferred_username || req.user?.sub;
     const date = effectiveDate ? new Date(effectiveDate) : undefined;
     return this.adminService.getEtlParameter(tenantId, name, date);
   }
@@ -115,7 +115,7 @@ export class AdminController {
     @Req() req: any,
     @Query('parameter_type') parameterType?: string,
   ) {
-    const tenantId = req.user?.preferred_username || req.user?.sub;
+    const tenantId = (req.headers?.['x-tenant-id'] as string) || req.user?.preferred_username || req.user?.sub;
     return this.adminService.listEtlParameters(tenantId, parameterType);
   }
 
@@ -124,7 +124,7 @@ export class AdminController {
    */
   @Delete('etl-params/:id')
   async deleteEtlParameter(@Req() req: any, @Param('id') id: string) {
-    const tenantId = req.user?.preferred_username || req.user?.sub;
+    const tenantId = (req.headers?.['x-tenant-id'] as string) || req.user?.preferred_username || req.user?.sub;
     await this.adminService.deleteEtlParameter(tenantId, id);
     return { message: 'ETL parameter deleted successfully' };
   }
@@ -136,7 +136,7 @@ export class AdminController {
    */
   @Post('approvals')
   async createApprovalRequest(@Req() req: any, @Body() body: any) {
-    const tenantId = req.user?.preferred_username || req.user?.sub;
+    const tenantId = (req.headers?.['x-tenant-id'] as string) || req.user?.preferred_username || req.user?.sub;
     const requestedBy = req.user?.email || req.user?.preferred_username;
     return this.adminService.createApprovalRequest(
       tenantId,
@@ -183,7 +183,7 @@ export class AdminController {
    */
   @Post('audit')
   async writeAuditLog(@Req() req: any, @Body() body: AuditLog) {
-    const tenantId = req.user?.preferred_username || req.user?.sub;
+    const tenantId = (req.headers?.['x-tenant-id'] as string) || req.user?.preferred_username || req.user?.sub;
     body.tenant_id = tenantId;
     body.user_email = req.user?.email || req.user?.preferred_username;
     body.ip_address = req.ip;
@@ -206,7 +206,7 @@ export class AdminController {
     @Query('end_date') endDate?: string,
     @Query('limit') limit?: string,
   ) {
-    const tenantId = req.user?.preferred_username || req.user?.sub;
+    const tenantId = (req.headers?.['x-tenant-id'] as string) || req.user?.preferred_username || req.user?.sub;
     return this.adminService.queryAuditLogs(tenantId, {
       userEmail,
       action,

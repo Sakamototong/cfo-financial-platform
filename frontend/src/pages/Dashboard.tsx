@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import api from '../api/client'
+import { useAbortController, isAbortError } from '../hooks/useApi'
 import { Bar, Doughnut } from 'react-chartjs-2'
 import {
   Chart as ChartJS,
@@ -47,22 +48,23 @@ export default function Dashboard() {
   const [scenarios, setScenarios] = useState<any[]>([])
   const [users, setUsers] = useState<any[]>([])
   const [coa, setCoa] = useState<any[]>([])
+  const { getSignal } = useAbortController()
 
   useEffect(() => {
     if (!tenantId) { setLoading(false); return }
-    loadAll()
+    loadAll(getSignal())
   }, [tenantId])
 
-  async function loadAll() {
+  async function loadAll(signal?: AbortSignal) {
     setLoading(true)
     try {
       const [stmtsRes, txRes, importsRes, scenariosRes, usersRes, coaRes] = await Promise.allSettled([
-        api.get('/financial/statements'),
-        api.get('/etl/transactions'),
-        api.get('/etl/imports'),
-        api.get('/scenarios'),
-        api.get('/users'),
-        api.get('/coa'),
+        api.get('/financial/statements', { signal }),
+        api.get('/etl/transactions', { signal }),
+        api.get('/etl/imports', { signal }),
+        api.get('/scenarios', { signal }),
+        api.get('/users', { signal }),
+        api.get('/coa', { signal }),
       ])
 
       const stmtList: any[] = stmtsRes.status === 'fulfilled' ? (stmtsRes.value.data || []) : []
@@ -70,10 +72,10 @@ export default function Dashboard() {
 
       const details = await Promise.all(stmtList.map(async (s: any) => {
         try {
-          const r = await api.get(`/financial/statements/${s.id}`)
+          const r = await api.get(`/financial/statements/${s.id}`, { signal })
           const lineItems = r.data?.lineItems || r.data?.line_items || []
           return { ...s, line_items: lineItems }
-        } catch { return { ...s, line_items: [] } }
+        } catch (e) { if (isAbortError(e)) throw e; return { ...s, line_items: [] } }
       }))
       setStatementDetails(details)
 

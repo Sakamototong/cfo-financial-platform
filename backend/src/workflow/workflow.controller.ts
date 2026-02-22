@@ -23,7 +23,7 @@ export class WorkflowController {
    */
   @Post('init')
   async initSchema(@Req() req: any) {
-    const tenantId = req.user?.preferred_username || req.user?.sub;
+    const tenantId = (req.headers?.['x-tenant-id'] as string) || req.user?.preferred_username || req.user?.sub;
     await this.workflowService.createWorkflowSchema(tenantId);
     return { message: 'Workflow schema initialized successfully' };
   }
@@ -35,7 +35,7 @@ export class WorkflowController {
    */
   @Post('chains')
   async createApprovalChain(@Req() req: any, @Body() body: ApprovalChain) {
-    const tenantId = req.user?.preferred_username || req.user?.sub;
+    const tenantId = (req.headers?.['x-tenant-id'] as string) || req.user?.preferred_username || req.user?.sub;
     body.tenant_id = tenantId;
     body.created_by = req.user?.email || req.user?.preferred_username;
     return this.workflowService.upsertApprovalChain(tenantId, body);
@@ -46,7 +46,7 @@ export class WorkflowController {
    */
   @Get('chains/:id')
   async getApprovalChain(@Req() req: any, @Param('id') id: string) {
-    const tenantId = req.user?.preferred_username || req.user?.sub;
+    const tenantId = (req.headers?.['x-tenant-id'] as string) || req.user?.preferred_username || req.user?.sub;
     return this.workflowService.getApprovalChain(tenantId, id);
   }
 
@@ -59,7 +59,7 @@ export class WorkflowController {
     @Query('document_type') documentType?: string,
     @Query('active_only') activeOnly?: string,
   ) {
-    const tenantId = req.user?.preferred_username || req.user?.sub;
+    const tenantId = (req.headers?.['x-tenant-id'] as string) || req.user?.preferred_username || req.user?.sub;
     return this.workflowService.listApprovalChains(
       tenantId,
       documentType,
@@ -72,7 +72,7 @@ export class WorkflowController {
    */
   @Delete('chains/:id')
   async deleteApprovalChain(@Req() req: any, @Param('id') id: string) {
-    const tenantId = req.user?.preferred_username || req.user?.sub;
+    const tenantId = (req.headers?.['x-tenant-id'] as string) || req.user?.preferred_username || req.user?.sub;
     await this.workflowService.deleteApprovalChain(tenantId, id);
     return { message: 'Approval chain deleted successfully' };
   }
@@ -84,7 +84,7 @@ export class WorkflowController {
    */
   @Post('requests')
   async createApprovalRequest(@Req() req: any, @Body() body: ApprovalRequest) {
-    const tenantId = req.user?.preferred_username || req.user?.sub;
+    const tenantId = (req.headers?.['x-tenant-id'] as string) || req.user?.preferred_username || req.user?.sub;
     body.tenant_id = tenantId;
     body.requested_by = req.user?.email || req.user?.preferred_username;
     return this.workflowService.createApprovalRequest(tenantId, body);
@@ -95,7 +95,7 @@ export class WorkflowController {
    */
   @Get('requests/:id')
   async getApprovalRequest(@Req() req: any, @Param('id') id: string) {
-    const tenantId = req.user?.preferred_username || req.user?.sub;
+    const tenantId = (req.headers?.['x-tenant-id'] as string) || req.user?.preferred_username || req.user?.sub;
     return this.workflowService.getApprovalRequest(tenantId, id);
   }
 
@@ -110,7 +110,7 @@ export class WorkflowController {
     @Query('requested_by') requestedBy?: string,
     @Query('approver_email') approverEmail?: string,
   ) {
-    const tenantId = req.user?.preferred_username || req.user?.sub;
+    const tenantId = (req.headers?.['x-tenant-id'] as string) || req.user?.preferred_username || req.user?.sub;
     return this.workflowService.listApprovalRequests(tenantId, {
       status,
       documentType,
@@ -128,7 +128,7 @@ export class WorkflowController {
     @Param('id') id: string,
     @Body() body: { action: 'approve' | 'reject' | 'delegate'; comments?: string; delegated_to?: string },
   ) {
-    const tenantId = req.user?.preferred_username || req.user?.sub;
+    const tenantId = (req.headers?.['x-tenant-id'] as string) || req.user?.preferred_username || req.user?.sub;
     const approverEmail = req.user?.email || req.user?.preferred_username;
 
     const action: ApprovalAction = {
@@ -149,7 +149,7 @@ export class WorkflowController {
    */
   @Put('requests/:id/cancel')
   async cancelRequest(@Req() req: any, @Param('id') id: string) {
-    const tenantId = req.user?.preferred_username || req.user?.sub;
+    const tenantId = (req.headers?.['x-tenant-id'] as string) || req.user?.preferred_username || req.user?.sub;
     const cancelledBy = req.user?.email || req.user?.preferred_username;
     return this.workflowService.cancelRequest(tenantId, id, cancelledBy);
   }
@@ -164,7 +164,7 @@ export class WorkflowController {
     @Req() req: any,
     @Query('unread_only') unreadOnly?: string,
   ) {
-    const tenantId = req.user?.preferred_username || req.user?.sub;
+    const tenantId = (req.headers?.['x-tenant-id'] as string) || req.user?.preferred_username || req.user?.sub;
     const userEmail = req.user?.email || req.user?.preferred_username;
     return this.workflowService.getUserNotifications(
       tenantId,
@@ -178,7 +178,7 @@ export class WorkflowController {
    */
   @Put('notifications/:id/read')
   async markNotificationRead(@Req() req: any, @Param('id') id: string) {
-    const tenantId = req.user?.preferred_username || req.user?.sub;
+    const tenantId = (req.headers?.['x-tenant-id'] as string) || req.user?.preferred_username || req.user?.sub;
     await this.workflowService.markNotificationRead(tenantId, id);
     return { message: 'Notification marked as read' };
   }

@@ -242,4 +242,4 @@ curl -X POST http://localhost:3000/users \
 
 **Note**: All passwords are set to `Secret123!` for testing purposes. Change in production!
 
-**Last Updated**: Jan 31, 2026
+**Last Updated**: February 22, 2026

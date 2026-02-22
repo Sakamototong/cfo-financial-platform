@@ -25,9 +25,18 @@
 - RAM: 8 GB (แนะนำ 16 GB)
 - CPU: 4 cores
 - Disk: 50 GB+ SSD
-- Port เปิด: 3000, 5173, 8081, 5432
+- Port เปิด: 3000, 8080, 8081, 5432
+- (ถ้า 8080 ถูกใช้อยู่ ดูวิธีเปลี่ยน port ด้านล่าง)
 
 ### 2️⃣ รัน Quick Deploy Script
+
+> **⚠️ เช็ค port ก่อน deploy:** ถ้า port 8080 ถูกใช้อยู่ ให้ตั้ง `FRONTEND_PORT` ก่อน
+> ```bash
+> # ตรวจสอบว่า 8080 ว่างไหม
+> ss -tlnp | grep 8080
+> # ถ้าถูกใช้อยู่ ให้เลือก port อื่น เช่น 9080
+> export FRONTEND_PORT=9080
+> ```
 
 ```bash
 # SSH เข้าเครื่อง UAT
@@ -56,7 +65,7 @@ chmod +x uat-quick-deploy.sh
 ### 3️⃣ เข้าใช้งาน
 
 ```
-Frontend:  http://<UAT_SERVER_IP>:5173
+Frontend:  http://<UAT_SERVER_IP>:8080
 Backend:   http://<UAT_SERVER_IP>:3000
 API Docs:  http://<UAT_SERVER_IP>:3000/api
 Keycloak:  http://<UAT_SERVER_IP>:8081
@@ -170,13 +179,20 @@ cd /opt/cfo-platform
 
 ตาม checklist ใน [UAT-READINESS-REPORT.md](UAT-READINESS-REPORT.md):
 - ✅ Login (Super Admin, Admin, Analyst, Viewer)
-- ✅ Create tenant
+- ✅ Create tenant & manage users
 - ✅ Financial statements CRUD
 - ✅ Scenario management
-- ✅ Projections
-- ✅ Reports & charts
-- ✅ ETL import
-- ✅ RBAC permissions
+- ✅ Projections (12-month forecast)
+- ✅ Budget management + approval workflow
+- ✅ Reports & charts (variance, drill-down)
+- ✅ ETL import (CSV / QuickBooks)
+- ✅ RBAC permissions (menu-level + API-level)
+- ✅ Company profile + fiscal year settings
+- ✅ Billing & subscription management
+- ✅ Version history + diff compare
+- ✅ DSR / DSAR privacy workflow
+- ✅ Profile (5 tabs incl. CFO alert thresholds)
+- ✅ Workflow approval chains
 
 ---
 
@@ -261,6 +277,6 @@ docker stats
 
 ---
 
-**เวอร์ชัน:** v0.1.0  
-**อัพเดทล่าสุด:** February 17, 2026  
+**เวอร์ชัน:** v0.3.0  
+**อัพเดทล่าสุด:** February 22, 2026  
 **ทดสอบบน:** Ubuntu 22.04 LTS, Docker 24.0.5

@@ -23,7 +23,7 @@ export default function AdminLTELayout({ children }: AdminLTELayoutProps) {
   const isSuperAdmin = role === 'super_admin'
   const isAdmin = role === 'admin' || role === 'tenant_admin' || role === 'finance_manager' || isSuperAdmin
   const isAnalyst = role === 'analyst' || role === 'finance_user' || role === 'finance_manager' || isAdmin
-  const canViewTenants = isAdmin
+  const canViewTenants = isSuperAdmin
   const canViewUsers = isAdmin || isAnalyst
   const canEdit = isAdmin || isAnalyst
   const canViewFinancials = true // all roles

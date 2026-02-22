@@ -27,6 +27,7 @@ import { CashflowModule } from './cashflow/cashflow.module';
 import { VersionControlModule } from './version-control/version-control.module';
 import { DsrModule } from './dsr/dsr.module';
 import { HealthModule } from './health/health.module';
+import { BillingModule } from './billing/billing.module';
 import { throttleConfig } from './config/throttle.config';
 import { RedisThrottlerStorage } from './config/redis-throttler.storage';
 import { RedisThrottlerStorageModule } from './config/redis-throttler-storage.module';
@@ -72,6 +73,7 @@ import { RedisThrottlerStorageModule } from './config/redis-throttler-storage.mo
     CashflowModule,
     VersionControlModule,
     DsrModule,
+    BillingModule,
     // Privacy and Audit modules (commented out for now)
     // PrivacyModule,
     // AuditModule,

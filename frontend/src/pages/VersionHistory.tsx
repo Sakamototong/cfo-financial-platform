@@ -1,252 +1,635 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import ReactDOM from 'react-dom';
 import api from '../api/client';
+import { useAbortController, isAbortError } from '../hooks/useApi';
+import { useTenant } from '../components/TenantContext';
 
+// ─── Types ────────────────────────────────────────────────────────────────────
 interface Version {
-  id: string; object_type: string; object_id: string; object_name: string;
-  version_number: number; version_label: string; change_type: string;
-  created_by: string; created_at: string; snapshot_data?: any;
-}
-interface VersionDetail extends Version { change_summary?: string; changed_fields?: string[]; }
-interface ComparisonDiff { field: string; old_value: any; new_value: any; change_type: string; }
-interface ComparisonResult {
-  version_from: number; version_to: number; version_from_date: string; version_to_date: string;
-  differences: ComparisonDiff[];
-  summary: { fields_changed: number; changes_by_field: string[]; };
+  id: string;
+  object_type: string;
+  object_id: string;
+  version_number: number;
+  version_label?: string;
+  change_type: string;
+  change_summary?: string;
+  changed_fields?: string[] | string;
+  created_by: string;
+  created_at: string;
+  snapshot_data?: any;
+  object_name?: string;
 }
 
-const VersionHistory: React.FC = () => {
+interface VersionStats {
+  total_versions?: number;
+  object_types?: Record<string, number>;
+  recent_changes?: number;
+  objects_tracked?: number;
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+const OBJECT_TYPES = [
+  { value: 'coa_entry',         label: 'Chart of Accounts',    icon: 'bi-diagram-3',         color: 'text-bg-info'      },
+  { value: 'budget',            label: 'Budget',               icon: 'bi-wallet2',            color: 'text-bg-primary'   },
+  { value: 'budget_line',       label: 'Budget Line Item',     icon: 'bi-list-ol',            color: 'text-bg-secondary' },
+  { value: 'statement',         label: 'Financial Statement',  icon: 'bi-cash-stack',         color: 'text-bg-success'   },
+  { value: 'scenario',          label: 'Scenario',             icon: 'bi-diagram-2',          color: 'text-bg-warning'   },
+  { value: 'cash_flow_forecast','label': 'Cash Flow Forecast', icon: 'bi-graph-up-arrow',     color: 'text-bg-danger'    },
+] as const;
+
+const CHANGE_TYPE_BADGE: Record<string, string> = {
+  create:  'text-bg-success',
+  update:  'text-bg-primary',
+  delete:  'text-bg-danger',
+  approve: 'text-bg-info',
+  lock:    'text-bg-warning',
+  restore: 'text-bg-secondary',
+  import:  'text-bg-dark',
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function fmtDate(d?: string) {
+  if (!d) return '—';
+  return new Date(d).toLocaleString('th-TH', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+function fmtDateShort(d?: string) {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+function typeInfo(t: string) {
+  return OBJECT_TYPES.find(o => o.value === t) || { label: t, icon: 'bi-circle', color: 'text-bg-secondary' };
+}
+function changedFieldsList(cf: any): string[] {
+  if (!cf) return [];
+  if (Array.isArray(cf)) return cf;
+  if (typeof cf === 'string') {
+    try { return JSON.parse(cf); } catch { return [cf]; }
+  }
+  return [];
+}
+
+// ─── Toast ────────────────────────────────────────────────────────────────────
+function ToastAlert({ msg, type, onClose }: { msg: string; type: 'success' | 'danger' | 'warning'; onClose: () => void }) {
+  return ReactDOM.createPortal(
+    <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 99999, minWidth: 300 }}>
+      <div className={`alert alert-${type} alert-dismissible shadow d-flex align-items-center mb-0`}>
+        <i className={`bi ${type === 'success' ? 'bi-check-circle-fill' : type === 'warning' ? 'bi-exclamation-triangle-fill' : 'bi-x-circle-fill'} me-2 flex-shrink-0`}></i>
+        <span>{msg}</span>
+        <button className="btn-close ms-auto" onClick={onClose}></button>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+export default function VersionHistory() {
+  const { tenantId } = useTenant();
+
+  // List
   const [versions, setVersions] = useState<Version[]>([]);
-  const [selectedVersion, setSelectedVersion] = useState<VersionDetail | null>(null);
-  const [filterType, setFilterType] = useState<string>('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [showCompare, setShowCompare] = useState(false);
-  const [compareFrom, setCompareFrom] = useState<number>(0);
-  const [compareTo, setCompareTo] = useState<number>(0);
-  const [comparison, setComparison] = useState<ComparisonResult | null>(null);
-  const [showRestore, setShowRestore] = useState(false);
-  const [restoreVersion, setRestoreVersion] = useState<VersionDetail | null>(null);
-  const [restoreNote, setRestoreNote] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [search, setSearch] = useState('');
+  const [limitValue, setLimitValue] = useState(100);
 
-  useEffect(() => { fetchVersions() }, [filterType]);
+  // Stats
+  const [stats, setStats] = useState<VersionStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
 
-  const fetchVersions = async () => {
-    setLoading(true); setError('');
+  // Detail
+  const [selectedVersion, setSelectedVersion] = useState<Version | null>(null);
+  const [objectHistory, setObjectHistory] = useState<Version[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<'detail' | 'history' | 'snapshot'>('detail');
+
+  // Compare
+  const [compareVersion, setCompareVersion] = useState<Version | null>(null);
+  interface CompareResult { version_a: any; version_b: any; differences: any; }
+  const [compareResult, setCompareResult] = useState<CompareResult | null>(null);
+  const [comparing, setComparing] = useState(false);
+
+  // Restore
+  const [restoring, setRestoring] = useState(false);
+
+  // Toast
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'danger' | 'warning' } | null>(null);
+  const toastTimer = useRef<any>(null);
+  const showToast = (msg: string, type: 'success' | 'danger' | 'warning' = 'success') => {
+    setToast({ msg, type });
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 4500);
+  };
+
+  const detailRef = useRef<HTMLDivElement>(null);
+
+  // ── Fetch ──────────────────────────────────────────────────────────────
+
+  const { getSignal } = useAbortController();
+
+  const fetchVersions = useCallback(async (signal?: AbortSignal) => {
+    setLoading(true); setError(null);
     try {
-      const params = filterType ? `?object_type=${filterType}&limit=200` : '?limit=200';
-      const r = await api.get(`/version-control/versions${params}`);
-      setVersions(r.data);
-    } catch (err: any) { setError(err.response?.data?.message || 'Failed to fetch versions'); }
-    finally { setLoading(false); }
-  };
+      const params: any = { limit: limitValue };
+      if (typeFilter !== 'all') params.object_type = typeFilter;
+      const res = await api.get('/version-control/versions', { params, signal });
+      setVersions(res.data || []);
+    } catch (e: any) {
+      if (!isAbortError(e)) setError(e.response?.data?.message || e.message || 'Failed to load version history');
+    } finally { setLoading(false); }
+  }, [typeFilter, limitValue]);
 
-  const fetchVersionDetail = async (v: Version) => {
+  const fetchStats = useCallback(async (signal?: AbortSignal) => {
+    setStatsLoading(true);
     try {
-      const r = await api.get(`/version-control/versions/${v.object_type}/${v.object_id}/${v.version_number}`);
-      setSelectedVersion(r.data);
-    } catch (err: any) { setError(err.response?.data?.message || 'Failed to fetch version detail'); }
-  };
+      const res = await api.get('/version-control/stats', { signal });
+      setStats(res.data);
+    } catch (e) { if (!isAbortError(e)) { /* stats not critical */ } }
+    finally { setStatsLoading(false); }
+  }, []);
 
-  const handleCompare = async () => {
-    if (!selectedVersion || compareFrom === 0 || compareTo === 0) { setError('Please select two versions'); return; }
+  useEffect(() => { const sig = getSignal(); fetchVersions(sig); fetchStats(sig); }, [fetchVersions, fetchStats]);
+
+  const fetchObjectHistory = async (v: Version) => {
+    setHistoryLoading(true);
     try {
-      const r = await api.post(`/version-control/versions/${selectedVersion.object_type}/${selectedVersion.object_id}/compare`, { version_from: compareFrom, version_to: compareTo, save_comparison: false });
-      setComparison(r.data);
-    } catch (err: any) { setError(err.response?.data?.message || 'Failed to compare'); }
+      const res = await api.get(`/version-control/versions/${v.object_type}/${v.object_id}`);
+      setObjectHistory(res.data || []);
+    } catch { setObjectHistory([]); }
+    finally { setHistoryLoading(false); }
   };
 
-  const handleRestore = async () => {
-    if (!restoreVersion) return;
+  const handleSelectVersion = (v: Version) => {
+    setSelectedVersion(v); setActiveTab('detail');
+    setCompareVersion(null); setCompareResult(null);
+    fetchObjectHistory(v);
+    setTimeout(() => detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+  };
+
+  // ── Compare ────────────────────────────────────────────────────────────
+
+  const handleCompare = async (va: Version, vb: Version) => {
+    setComparing(true); setCompareResult(null);
     try {
-      const r = await api.post(`/version-control/versions/${restoreVersion.object_type}/${restoreVersion.object_id}/restore`, { version_number: restoreVersion.version_number, restore_note: restoreNote });
-      alert(`Version ${restoreVersion.version_number} restored from ${new Date(r.data.restored_from_date).toLocaleString()}`);
-      setShowRestore(false); setRestoreNote(''); fetchVersions();
-    } catch (err: any) { setError(err.response?.data?.message || 'Failed to restore'); }
+      const res = await api.post(
+        `/version-control/versions/${va.object_type}/${va.object_id}/compare`,
+        { version_a: va.version_number, version_b: vb.version_number }
+      );
+      setCompareResult(res.data); setActiveTab('history');
+    } catch (e: any) {
+      showToast('Compare failed: ' + (e.response?.data?.message || e.message), 'danger');
+    } finally { setComparing(false); }
   };
 
-  const changeTypeBadge = (ct: string) => {
-    const m: Record<string, string> = { create: 'text-bg-success', update: 'text-bg-warning', delete: 'text-bg-danger', restore: 'text-bg-info' };
-    return <span className={`badge ${m[ct] || 'text-bg-secondary'}`}>{ct}</span>;
+  // ── Restore ────────────────────────────────────────────────────────────
+
+  const handleRestore = async (v: Version) => {
+    if (!confirm(`Restore to version ${v.version_number} (${v.version_label || v.change_type}) for "${v.object_name || v.object_id}"?\n\nThis will return the object to its state at that version.`)) return;
+    setRestoring(true);
+    try {
+      const res = await api.post(
+        `/version-control/versions/${v.object_type}/${v.object_id}/restore`,
+        { version_number: v.version_number, created_by: 'cfo-user', change_summary: `Restored to v${v.version_number}` }
+      );
+      showToast(`Restored to version ${v.version_number}`);
+      await fetchVersions();
+      if (selectedVersion) fetchObjectHistory(selectedVersion);
+    } catch (e: any) {
+      showToast('Restore failed: ' + (e.response?.data?.message || e.message), 'danger');
+    } finally { setRestoring(false); }
   };
 
-  const fmtDate = (d: string) => new Date(d).toLocaleString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  const fmtValue = (v: any): string => { if (v === null || v === undefined) return 'null'; if (typeof v === 'object') return JSON.stringify(v, null, 2); return String(v); };
+  // ── Computed ───────────────────────────────────────────────────────────
 
-  const grouped = versions.reduce((acc, v) => {
-    const key = `${v.object_type}:${v.object_id}`;
-    if (!acc[key]) acc[key] = { object_type: v.object_type, object_id: v.object_id, object_name: v.object_name, versions: [] };
-    acc[key].versions.push(v); return acc;
-  }, {} as Record<string, { object_type: string; object_id: string; object_name: string; versions: Version[] }>);
+  const filtered = versions.filter(v => {
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      return (
+        (v.object_name || '').toLowerCase().includes(q) ||
+        v.object_id.toLowerCase().includes(q) ||
+        v.object_type.toLowerCase().includes(q) ||
+        (v.created_by || '').toLowerCase().includes(q) ||
+        (v.change_summary || '').toLowerCase().includes(q)
+      );
+    }
+    return true;
+  });
+
+  const totalVersions = versions.length;
+  const uniqueObjects = new Set(versions.map(v => v.object_id)).size;
+  const todayChanges = versions.filter(v => {
+    if (!v.created_at) return false;
+    const d = new Date(v.created_at);
+    const now = new Date();
+    return d.toDateString() === now.toDateString();
+  }).length;
+  const typeCount = (t: string) => versions.filter(v => v.object_type === t).length;
+
+  // ── Render ─────────────────────────────────────────────────────────────
 
   return (
     <>
-      {/* Header */}
+      {/* KPI Strip */}
+      <div className="row g-2 mb-3">
+        {[
+          { label: 'Total Versions',      value: stats?.total_versions ?? totalVersions, icon: 'bi-clock-history',    color: 'text-bg-primary'   },
+          { label: 'Objects Tracked',     value: stats?.objects_tracked ?? uniqueObjects, icon: 'bi-archive',          color: 'text-bg-info'      },
+          { label: "Today's Changes",     value: todayChanges,                            icon: 'bi-calendar-check',   color: 'text-bg-success'   },
+          { label: 'Loaded',              value: totalVersions,                           icon: 'bi-list-ol',           color: 'text-bg-secondary' },
+        ].map(k => (
+          <div key={k.label} className="col-6 col-sm-3">
+            <div className="info-box mb-0">
+              <span className={`info-box-icon ${k.color}`}><i className={`bi ${k.icon}`}></i></span>
+              <div className="info-box-content">
+                <span className="info-box-text">{k.label}</span>
+                <span className="info-box-number">{k.value}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Object Type Quick Filters */}
       <div className="card mb-3">
-        <div className="card-header">
-          <h3 className="card-title"><i className="bi bi-clock-history me-2"></i>Version History</h3>
-          <div className="card-tools">
-            <button className="btn btn-outline-secondary btn-sm" onClick={fetchVersions}><i className="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+        <div className="card-body py-2 px-3">
+          <div className="d-flex flex-wrap gap-2 align-items-center">
+            <span className="text-muted small fw-semibold me-1">Filter:</span>
+            <button
+              className={`btn btn-sm ${typeFilter === 'all' ? 'btn-dark' : 'btn-outline-secondary'}`}
+              onClick={() => setTypeFilter('all')}
+            >
+              <i className="bi bi-grid me-1"></i>ทั้งหมด
+              <span className="badge text-bg-light text-dark ms-1">{totalVersions}</span>
+            </button>
+            {OBJECT_TYPES.map(t => (
+              <button
+                key={t.value}
+                className={`btn btn-sm ${typeFilter === t.value ? t.color : 'btn-outline-secondary'}`}
+                onClick={() => setTypeFilter(typeFilter === t.value ? 'all' : t.value)}
+              >
+                <i className={`bi ${t.icon} me-1`}></i>{t.label}
+                <span className="badge text-bg-light text-dark ms-1">{typeCount(t.value)}</span>
+              </button>
+            ))}
           </div>
         </div>
       </div>
 
-      {error && <div className="alert alert-danger alert-dismissible"><button className="btn-close" onClick={() => setError('')}></button>{error}</div>}
-
-      {/* Filter */}
-      <div className="row mb-3">
-        <div className="col-md-4">
-          <div className="input-group">
-            <span className="input-group-text"><i className="bi bi-funnel"></i></span>
-            <select className="form-select" value={filterType} onChange={e => setFilterType(e.target.value)}>
-              <option value="">All Types</option>
-              <option value="coa_entry">Chart of Accounts</option>
-              <option value="budget">Budgets</option>
-              <option value="budget_line">Budget Lines</option>
-              <option value="statement">Financial Statements</option>
-              <option value="scenario">Scenarios</option>
-              <option value="cash_flow_forecast">Cash Flow Forecasts</option>
-            </select>
-          </div>
-        </div>
-        <div className="col-md-8">
-          <div className="d-flex gap-3">
-            <div className="info-box mb-0 flex-fill"><span className="info-box-icon text-bg-primary"><i className="bi bi-layers"></i></span><div className="info-box-content"><span className="info-box-text">Total Versions</span><span className="info-box-number">{versions.length}</span></div></div>
-            <div className="info-box mb-0 flex-fill"><span className="info-box-icon text-bg-info"><i className="bi bi-collection"></i></span><div className="info-box-content"><span className="info-box-text">Objects</span><span className="info-box-number">{Object.keys(grouped).length}</span></div></div>
-          </div>
-        </div>
-      </div>
-
-      <div className="row">
-        {/* Left: Version List */}
-        <div className="col-md-5">
+      <div className="row g-3">
+        {/* ── Version List ──────────────────────────────────────────────── */}
+        <div className="col-xl-5 col-lg-5">
           <div className="card">
-            <div className="card-header"><h3 className="card-title">Versions ({versions.length})</h3></div>
-            <div className="card-body p-0" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
-              {loading ? (
-                <div className="text-center py-5"><div className="spinner-border text-primary"></div></div>
-              ) : Object.values(grouped).length === 0 ? (
-                <div className="text-center text-muted py-5"><i className="bi bi-archive d-block mb-2" style={{ fontSize: '2.5rem' }}></i><p>No version history found</p></div>
-              ) : (
-                Object.values(grouped).map(g => (
-                  <div key={`${g.object_type}:${g.object_id}`} className="mb-2">
-                    <div className="px-3 py-2 bg-light border-bottom d-flex justify-content-between">
-                      <div><span className="badge text-bg-primary me-2">{g.object_type}</span><strong>{g.object_name || 'Unnamed'}</strong></div>
-                      <span className="badge text-bg-secondary">{g.versions.length}</span>
-                    </div>
-                    <div className="list-group list-group-flush">
-                      {g.versions.map(v => (
-                        <div key={v.id} className={`list-group-item list-group-item-action ${selectedVersion?.id === v.id ? 'active' : ''}`}
-                          onClick={() => fetchVersionDetail(v)} style={{ cursor: 'pointer' }}>
-                          <div className="d-flex justify-content-between align-items-center">
-                            <div>
-                              <strong className="me-2">v{v.version_number}</strong>
-                              {changeTypeBadge(v.change_type)}
-                            </div>
-                            <small className={selectedVersion?.id === v.id ? '' : 'text-muted'}>{fmtDate(v.created_at)}</small>
-                          </div>
-                          <small className={selectedVersion?.id === v.id ? '' : 'text-muted'}>by {v.created_by}</small>
-                          {v.version_label && <div><span className="badge text-bg-light">{v.version_label}</span></div>}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))
+            <div className="card-header d-flex align-items-center">
+              <h3 className="card-title mb-0">
+                <i className="bi bi-clock-history me-2"></i>Version History
+                <span className="badge text-bg-secondary ms-2">{filtered.length}</span>
+              </h3>
+              <div className="ms-auto d-flex gap-2 align-items-center">
+                <select className="form-select form-select-sm" style={{ width: 70 }}
+                  value={limitValue} onChange={e => setLimitValue(parseInt(e.target.value))}>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={200}>200</option>
+                  <option value={500}>500</option>
+                </select>
+                <button className="btn btn-sm btn-outline-secondary" onClick={fetchVersions} disabled={loading} title="Refresh">
+                  <i className={`bi bi-arrow-clockwise ${loading ? 'spin' : ''}`}></i>
+                </button>
+              </div>
+            </div>
+            <div className="card-body p-2 border-bottom">
+              <input className="form-control form-control-sm"
+                placeholder="ค้นหาชื่อ, ID, ผู้บันทึก, รายละเอียด…"
+                value={search} onChange={e => setSearch(e.target.value)} />
+            </div>
+            <div className="card-body p-0" style={{ maxHeight: 580, overflowY: 'auto' }}>
+              {loading && (
+                <div className="text-center py-5">
+                  <div className="spinner-border spinner-border-sm text-primary"></div>
+                  <p className="small text-muted mt-2">กำลังโหลด…</p>
+                </div>
               )}
+              {error && !loading && (
+                <div className="p-3">
+                  <div className="alert alert-danger small py-2 d-flex align-items-center">
+                    <i className="bi bi-exclamation-triangle me-2"></i>{error}
+                    <button className="btn btn-sm btn-outline-danger ms-2" onClick={fetchVersions}>Retry</button>
+                  </div>
+                </div>
+              )}
+              {!loading && !error && filtered.length === 0 && (
+                <div className="text-center text-muted py-5">
+                  <i className="bi bi-clock-history d-block mb-2" style={{ fontSize: '2.5rem' }}></i>
+                  <p className="small">{search ? 'ไม่พบรายการที่ตรงกับคำค้นหา' : 'ยังไม่มีประวัติ version ที่บันทึกไว้'}</p>
+                </div>
+              )}
+              {/* Timeline List */}
+              <div className="list-group list-group-flush">
+                {filtered.map(v => {
+                  const ti = typeInfo(v.object_type);
+                  return (
+                    <div
+                      key={v.id}
+                      className={`list-group-item list-group-item-action ${selectedVersion?.id === v.id ? 'active' : ''}`}
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => handleSelectVersion(v)}
+                    >
+                      <div className="d-flex justify-content-between align-items-start">
+                        <div className="flex-grow-1 min-w-0 me-2">
+                          <div className="d-flex align-items-center gap-2 flex-wrap mb-1">
+                            <span className={`badge ${ti.color}`} style={{ fontSize: '0.68rem' }}>
+                              <i className={`bi ${ti.icon} me-1`}></i>{ti.label}
+                            </span>
+                            <span className={`badge ${CHANGE_TYPE_BADGE[v.change_type] || 'text-bg-secondary'}`} style={{ fontSize: '0.68rem' }}>
+                              {v.change_type}
+                            </span>
+                            <span className={`badge ${selectedVersion?.id === v.id ? 'text-bg-light text-dark' : 'text-bg-light text-muted border'}`} style={{ fontSize: '0.65rem' }}>
+                              v{v.version_number}
+                            </span>
+                          </div>
+                          <div className="fw-semibold text-truncate" style={{ fontSize: '0.85rem', maxWidth: 220 }} title={v.object_name || v.object_id}>
+                            {v.object_name || <code style={{ fontSize: '0.75rem' }}>{v.object_id.slice(0, 8)}…</code>}
+                          </div>
+                          {v.change_summary && (
+                            <div className={`small text-truncate ${selectedVersion?.id === v.id ? 'text-white-50' : 'text-muted'}`}
+                              style={{ fontSize: '0.75rem' }} title={v.change_summary}>
+                              {v.change_summary}
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-end flex-shrink-0">
+                          <div className={`small ${selectedVersion?.id === v.id ? 'text-white-50' : 'text-muted'}`} style={{ fontSize: '0.7rem' }}>
+                            {fmtDateShort(v.created_at)}
+                          </div>
+                          <div className={`small ${selectedVersion?.id === v.id ? 'text-white-50' : 'text-muted'}`} style={{ fontSize: '0.68rem' }}>
+                            {v.created_by}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="card-footer py-2">
+              <small className="text-muted">
+                <i className="bi bi-info-circle me-1"></i>
+                แสดง {filtered.length} รายการ{search ? ` (ค้นหา: "${search}")` : ''}
+              </small>
             </div>
           </div>
         </div>
 
-        {/* Right: Version Detail */}
-        <div className="col-md-7">
-          {selectedVersion ? (
+        {/* ── Detail Panel ──────────────────────────────────────────────── */}
+        <div className="col-xl-7 col-lg-7" ref={detailRef}>
+          {!selectedVersion && (
+            <div className="card h-100">
+              <div className="card-body d-flex flex-column align-items-center justify-content-center text-muted" style={{ minHeight: 360 }}>
+                <i className="bi bi-arrow-left-circle d-block mb-3" style={{ fontSize: '3rem' }}></i>
+                <h5>เลือก version เพื่อดูรายละเอียด</h5>
+                <p className="small text-center">ประวัติการเปลี่ยนแปลงครอบคลุม COA, Budget, Statements, Scenarios และ Cash Flow Forecasts</p>
+              </div>
+            </div>
+          )}
+
+          {selectedVersion && (
             <>
+              {/* Header */}
               <div className="card mb-3">
                 <div className="card-header">
-                  <h3 className="card-title">Version {selectedVersion.version_number} {changeTypeBadge(selectedVersion.change_type)}</h3>
+                  <h3 className="card-title mb-0">
+                    <i className={`bi ${typeInfo(selectedVersion.object_type).icon} me-2`}></i>
+                    {selectedVersion.object_name || selectedVersion.object_id}
+                    <span className={`badge ms-2 ${CHANGE_TYPE_BADGE[selectedVersion.change_type] || 'text-bg-secondary'}`}>
+                      {selectedVersion.change_type}
+                    </span>
+                    <span className="badge text-bg-light text-dark border ms-1">v{selectedVersion.version_number}</span>
+                  </h3>
                   <div className="card-tools d-flex gap-2">
-                    <button className="btn btn-outline-info btn-sm" onClick={() => { setShowCompare(true); setCompareFrom(selectedVersion.version_number); setCompareTo(selectedVersion.version_number > 1 ? selectedVersion.version_number - 1 : 0); }}>
-                      <i className="bi bi-arrow-left-right me-1"></i>Compare
-                    </button>
-                    <button className="btn btn-outline-warning btn-sm" onClick={() => { setRestoreVersion(selectedVersion); setShowRestore(true); }}>
-                      <i className="bi bi-arrow-counterclockwise me-1"></i>Restore
+                    <button className="btn btn-sm btn-outline-warning" disabled={restoring}
+                      onClick={() => handleRestore(selectedVersion)}
+                      title="Restore object to this version">
+                      {restoring ? <span className="spinner-border spinner-border-sm"></span> : <i className="bi bi-arrow-counterclockwise me-1"></i>}
+                      Restore
                     </button>
                   </div>
+                </div>
+              </div>
+
+              {/* Tabs */}
+              <div className="card">
+                <div className="card-header p-0">
+                  <ul className="nav nav-tabs card-header-tabs px-3">
+                    {(['detail', 'history', 'snapshot'] as const).map(tab => (
+                      <li key={tab} className="nav-item">
+                        <button className={`nav-link ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)}>
+                          {tab === 'detail'   && <><i className="bi bi-info-circle me-1"></i>รายละเอียด</>}
+                          {tab === 'history'  && <><i className="bi bi-list-ol me-1"></i>Object History <span className="badge text-bg-secondary ms-1">{objectHistory.length}</span></>}
+                          {tab === 'snapshot' && <><i className="bi bi-file-code me-1"></i>Snapshot Data</>}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
                 <div className="card-body">
-                  <div className="row">
-                    <div className="col-sm-6"><strong>Object Type:</strong> {selectedVersion.object_type}</div>
-                    <div className="col-sm-6"><strong>Object ID:</strong> <code className="small">{selectedVersion.object_id}</code></div>
-                    <div className="col-sm-6"><strong>Created:</strong> {fmtDate(selectedVersion.created_at)}</div>
-                    <div className="col-sm-6"><strong>By:</strong> {selectedVersion.created_by}</div>
-                  </div>
-                  {selectedVersion.change_summary && <p className="mt-2 mb-1 text-muted">{selectedVersion.change_summary}</p>}
-                  {selectedVersion.changed_fields && selectedVersion.changed_fields.length > 0 && (
-                    <div className="mt-2">{selectedVersion.changed_fields.map((f, i) => <span key={i} className="badge text-bg-light me-1">{f}</span>)}</div>
+
+                  {/* Detail Tab */}
+                  {activeTab === 'detail' && (
+                    <div>
+                      <dl className="row mb-3">
+                        <dt className="col-sm-4 text-muted small">Object Type</dt>
+                        <dd className="col-sm-8 mb-2">
+                          <span className={`badge ${typeInfo(selectedVersion.object_type).color}`}>
+                            <i className={`bi ${typeInfo(selectedVersion.object_type).icon} me-1`}></i>
+                            {typeInfo(selectedVersion.object_type).label}
+                          </span>
+                        </dd>
+                        <dt className="col-sm-4 text-muted small">Object ID</dt>
+                        <dd className="col-sm-8 mb-2"><code className="text-primary" style={{ fontSize: '0.8rem' }}>{selectedVersion.object_id}</code></dd>
+                        <dt className="col-sm-4 text-muted small">Object Name</dt>
+                        <dd className="col-sm-8 mb-2 fw-semibold">{selectedVersion.object_name || '—'}</dd>
+                        <dt className="col-sm-4 text-muted small">Version</dt>
+                        <dd className="col-sm-8 mb-2">
+                          <span className="badge text-bg-primary">v{selectedVersion.version_number}</span>
+                          {selectedVersion.version_label && (
+                            <span className="badge text-bg-light text-dark border ms-1">{selectedVersion.version_label}</span>
+                          )}
+                        </dd>
+                        <dt className="col-sm-4 text-muted small">Change Type</dt>
+                        <dd className="col-sm-8 mb-2">
+                          <span className={`badge ${CHANGE_TYPE_BADGE[selectedVersion.change_type] || 'text-bg-secondary'}`}>
+                            {selectedVersion.change_type}
+                          </span>
+                        </dd>
+                        <dt className="col-sm-4 text-muted small">Summary</dt>
+                        <dd className="col-sm-8 mb-2">{selectedVersion.change_summary || '—'}</dd>
+                        <dt className="col-sm-4 text-muted small">Changed By</dt>
+                        <dd className="col-sm-8 mb-2">
+                          <i className="bi bi-person me-1 text-muted"></i>{selectedVersion.created_by}
+                        </dd>
+                        <dt className="col-sm-4 text-muted small">Changed At</dt>
+                        <dd className="col-sm-8 mb-2">{fmtDate(selectedVersion.created_at)}</dd>
+                        {changedFieldsList(selectedVersion.changed_fields).length > 0 && (
+                          <>
+                            <dt className="col-sm-4 text-muted small">Changed Fields</dt>
+                            <dd className="col-sm-8 mb-0">
+                              <div className="d-flex flex-wrap gap-1">
+                                {changedFieldsList(selectedVersion.changed_fields).map((f, i) => (
+                                  <span key={i} className="badge text-bg-light border text-dark" style={{ fontSize: '0.75rem' }}>{f}</span>
+                                ))}
+                              </div>
+                            </dd>
+                          </>
+                        )}
+                      </dl>
+                    </div>
                   )}
+
+                  {/* Object History Tab */}
+                  {activeTab === 'history' && (
+                    <div>
+                      {/* Compare Section */}
+                      {compareResult && (
+                        <div className="card bg-light mb-3">
+                          <div className="card-header py-2">
+                            <h6 className="card-title small mb-0">
+                              <i className="bi bi-arrows-collapse me-1"></i>เปรียบเทียบ v{compareResult.version_a?.version_number} vs v{compareResult.version_b?.version_number}
+                            </h6>
+                            <div className="card-tools">
+                              <button className="btn btn-sm btn-outline-secondary py-0" style={{ fontSize: '0.75rem' }}
+                                onClick={() => { setCompareResult(null); setCompareVersion(null); }}>
+                                <i className="bi bi-x"></i>
+                              </button>
+                            </div>
+                          </div>
+                          <div className="card-body py-2">
+                            {compareResult.differences && (
+                              <div>
+                                <p className="small text-muted mb-2">ความแตกต่าง:</p>
+                                <pre className="small bg-dark text-light p-2 rounded" style={{ fontSize: '0.72rem', maxHeight: 200, overflow: 'auto' }}>
+                                  {JSON.stringify(compareResult.differences, null, 2)}
+                                </pre>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {historyLoading ? (
+                        <div className="text-center py-3">
+                          <div className="spinner-border spinner-border-sm text-primary"></div>
+                          <p className="small text-muted mt-2">กำลังโหลดประวัติ…</p>
+                        </div>
+                      ) : objectHistory.length === 0 ? (
+                        <div className="text-center text-muted py-4">
+                          <i className="bi bi-inbox d-block mb-2" style={{ fontSize: '2rem' }}></i>
+                          <small>ไม่พบประวัติสำหรับ object นี้</small>
+                        </div>
+                      ) : (
+                        <>
+                          <p className="small text-muted mb-2">
+                            <i className="bi bi-info-circle me-1"></i>
+                            คลิกที่ version เพื่อเปรียบเทียบกับ <strong>v{selectedVersion.version_number}</strong>
+                          </p>
+                          <div className="table-responsive">
+                            <table className="table table-sm table-hover mb-0">
+                              <thead className="table-light">
+                                <tr>
+                                  <th>Version</th><th>Type</th><th>Summary</th><th>By</th><th>Date</th><th>Actions</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {objectHistory.map(v => (
+                                  <tr key={v.id} className={v.id === selectedVersion.id ? 'table-primary' : ''}>
+                                    <td>
+                                      <span className="badge text-bg-primary">v{v.version_number}</span>
+                                      {v.id === selectedVersion.id && <span className="badge text-bg-warning ms-1" style={{ fontSize: '0.65rem' }}>current</span>}
+                                    </td>
+                                    <td>
+                                      <span className={`badge ${CHANGE_TYPE_BADGE[v.change_type] || 'text-bg-secondary'}`} style={{ fontSize: '0.68rem' }}>
+                                        {v.change_type}
+                                      </span>
+                                    </td>
+                                    <td className="text-muted small text-truncate" style={{ maxWidth: 150 }}>{v.change_summary || '—'}</td>
+                                    <td className="text-muted small">{v.created_by}</td>
+                                    <td className="text-muted small" style={{ whiteSpace: 'nowrap' }}>{fmtDateShort(v.created_at)}</td>
+                                    <td>
+                                      <div className="btn-group btn-group-sm">
+                                        {v.id !== selectedVersion.id && (
+                                          <button
+                                            className={`btn btn-outline-info ${compareVersion?.id === v.id ? 'active' : ''}`}
+                                            style={{ fontSize: '0.7rem' }}
+                                            disabled={comparing}
+                                            onClick={() => {
+                                              setCompareVersion(v);
+                                              handleCompare(selectedVersion, v);
+                                            }}
+                                            title="Compare with selected version"
+                                          >
+                                            {comparing && compareVersion?.id === v.id ? (
+                                              <span className="spinner-border spinner-border-sm"></span>
+                                            ) : (
+                                              <i className="bi bi-arrows-collapse"></i>
+                                            )}
+                                          </button>
+                                        )}
+                                        <button
+                                          className="btn btn-outline-warning"
+                                          style={{ fontSize: '0.7rem' }}
+                                          disabled={restoring}
+                                          onClick={() => handleRestore(v)}
+                                          title="Restore to this version"
+                                        >
+                                          <i className="bi bi-arrow-counterclockwise"></i>
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Snapshot Data Tab */}
+                  {activeTab === 'snapshot' && (
+                    <div>
+                      {selectedVersion.snapshot_data ? (
+                        <>
+                          <div className="d-flex justify-content-between align-items-center mb-2">
+                            <h6 className="mb-0 small text-muted text-uppercase fw-bold">
+                              <i className="bi bi-file-code me-1"></i>Snapshot at v{selectedVersion.version_number}
+                            </h6>
+                            <button className="btn btn-sm btn-outline-secondary py-0" style={{ fontSize: '0.75rem' }}
+                              onClick={() => navigator.clipboard.writeText(JSON.stringify(selectedVersion.snapshot_data, null, 2)).then(() => showToast('Snapshot copied'))}>
+                              <i className="bi bi-copy me-1"></i>Copy JSON
+                            </button>
+                          </div>
+                          <pre className="bg-dark text-light p-3 rounded small" style={{ fontSize: '0.75rem', maxHeight: 500, overflow: 'auto' }}>
+                            {JSON.stringify(selectedVersion.snapshot_data, null, 2)}
+                          </pre>
+                        </>
+                      ) : (
+                        <div className="text-center text-muted py-5">
+                          <i className="bi bi-file-earmark-x d-block mb-2" style={{ fontSize: '2.5rem' }}></i>
+                          <small>ไม่มี snapshot data สำหรับ version นี้</small>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                 </div>
               </div>
-              <div className="card">
-                <div className="card-header"><h3 className="card-title"><i className="bi bi-code-square me-2"></i>Snapshot Data</h3></div>
-                <div className="card-body"><pre className="bg-light p-3 rounded" style={{ maxHeight: '400px', overflow: 'auto', fontSize: '0.85rem' }}>{JSON.stringify(selectedVersion.snapshot_data, null, 2)}</pre></div>
-              </div>
             </>
-          ) : (
-            <div className="card"><div className="card-body text-center text-muted py-5"><i className="bi bi-hand-index d-block mb-2" style={{ fontSize: '3rem' }}></i><h5>Select a version to view details</h5></div></div>
           )}
         </div>
       </div>
 
-      {/* Compare Modal */}
-      {showCompare && selectedVersion && (
-        <div className="modal d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="modal-dialog modal-lg"><div className="modal-content">
-            <div className="modal-header"><h5 className="modal-title"><i className="bi bi-arrow-left-right me-2"></i>Compare Versions</h5><button className="btn-close" onClick={() => { setShowCompare(false); setComparison(null); }}></button></div>
-            <div className="modal-body">
-              <div className="row mb-3">
-                <div className="col-md-4"><label className="form-label">From Version</label><input type="number" className="form-control" value={compareFrom} onChange={e => setCompareFrom(parseInt(e.target.value))} min={1} /></div>
-                <div className="col-md-4"><label className="form-label">To Version</label><input type="number" className="form-control" value={compareTo} onChange={e => setCompareTo(parseInt(e.target.value))} min={1} /></div>
-                <div className="col-md-4 d-flex align-items-end"><button className="btn btn-primary w-100" onClick={handleCompare}><i className="bi bi-arrow-left-right me-1"></i>Compare</button></div>
-              </div>
-              {comparison && (
-                <>
-                  <div className="alert alert-info"><strong>{comparison.summary.fields_changed}</strong> field(s) changed from v{comparison.version_from} to v{comparison.version_to}</div>
-                  {comparison.differences.length === 0 ? (
-                    <p className="text-center text-muted">No changes detected</p>
-                  ) : (
-                    <div className="table-responsive"><table className="table table-sm table-bordered">
-                      <thead className="table-light"><tr><th>Field</th><th>Change</th><th>Old Value</th><th>New Value</th></tr></thead>
-                      <tbody>
-                        {comparison.differences.map((d, i) => (
-                          <tr key={i}><td><strong>{d.field}</strong></td><td>{changeTypeBadge(d.change_type)}</td><td><pre className="mb-0 small">{fmtValue(d.old_value)}</pre></td><td><pre className="mb-0 small">{fmtValue(d.new_value)}</pre></td></tr>
-                        ))}
-                      </tbody>
-                    </table></div>
-                  )}
-                </>
-              )}
-            </div>
-          </div></div>
-        </div>
-      )}
-
-      {/* Restore Modal */}
-      {showRestore && restoreVersion && (
-        <div className="modal d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="modal-dialog"><div className="modal-content">
-            <div className="modal-header"><h5 className="modal-title"><i className="bi bi-arrow-counterclockwise me-2"></i>Restore Version</h5><button className="btn-close" onClick={() => setShowRestore(false)}></button></div>
-            <div className="modal-body">
-              <div className="alert alert-warning"><i className="bi bi-exclamation-triangle me-2"></i><strong>Warning:</strong> This will restore to version {restoreVersion.version_number}. Current state will be saved first.</div>
-              <p><strong>Object:</strong> {restoreVersion.object_type} - {restoreVersion.object_name}</p>
-              <p><strong>Version:</strong> {restoreVersion.version_number}</p>
-              <p><strong>Created:</strong> {fmtDate(restoreVersion.created_at)}</p>
-              <div className="mb-3"><label className="form-label">Restore Note (optional)</label><textarea className="form-control" value={restoreNote} onChange={e => setRestoreNote(e.target.value)} placeholder="Why are you restoring this version?" rows={3} /></div>
-            </div>
-            <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setShowRestore(false)}>Cancel</button><button className="btn btn-warning" onClick={handleRestore}><i className="bi bi-arrow-counterclockwise me-1"></i>Confirm Restore</button></div>
-          </div></div>
-        </div>
-      )}
+      {toast && <ToastAlert msg={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
     </>
   );
-};
-
-export default VersionHistory;
+}
