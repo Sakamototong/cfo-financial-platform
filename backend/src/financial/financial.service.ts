@@ -239,14 +239,28 @@ export class FinancialService {
   }
 
   /**
-   * Delete statement (cascade deletes line items)
+   * Delete statement (cascade deletes line items) and reset linked imported_transactions
    */
   async deleteStatement(tenantId: string, statementId: string): Promise<void> {
+    // 1. Reset imported_transactions that reference this statement (central DB)
+    try {
+      await this.db.query(
+        `UPDATE imported_transactions
+         SET status = 'approved', financial_statement_id = NULL, posted_at = NULL, posted_by = NULL, updated_at = CURRENT_TIMESTAMP
+         WHERE financial_statement_id = $1 AND tenant_id = $2`,
+        [statementId, tenantId],
+      );
+      this.logger.info('Reset imported_transactions for deleted statement', { statementId, tenantId });
+    } catch (err: any) {
+      this.logger.warn('Could not reset imported_transactions (may not exist)', { error: err.message });
+    }
+
+    // 2. Delete financial_statements (CASCADE deletes financial_line_items)
     await this.db.queryTenant(tenantId, 'DELETE FROM financial_statements WHERE id = $1', [
       statementId,
     ]);
 
-    this.logger.info('Statement deleted', { statementId });
+    this.logger.info('Statement deleted', { statementId, tenantId });
   }
 
   /**
@@ -359,11 +373,9 @@ export class FinancialService {
   async getLineItemTransactions(tenantId: string, statementId: string, lineCode: string) {
     this.logger.info('Getting line item transactions for drill-down', { tenantId, statementId, lineCode });
 
-    const pool = await this.db.getTenantPool(tenantId);
-
     try {
-      // Get transactions that match the line code (account code)
-      const result = await pool.query(
+      // imported_transactions lives in the central DB, not the tenant DB
+      const result = await this.db.query(
         `SELECT 
           it.id,
           it.transaction_date,
@@ -410,17 +422,15 @@ export class FinancialService {
   async getStatementTransactions(tenantId: string, statementId: string) {
     this.logger.info('Getting all statement transactions', { tenantId, statementId });
 
-    const pool = await this.db.getTenantPool(tenantId);
-
     try {
-      const result = await pool.query(
+      // imported_transactions lives in the central DB, not the tenant DB
+      const result = await this.db.query(
         `SELECT 
           it.id,
           it.transaction_date,
           it.description,
           it.amount,
           it.account_code,
-          coa.account_name,
           it.department,
           it.cost_center,
           it.transaction_type,
@@ -436,7 +446,6 @@ export class FinancialService {
          FROM imported_transactions it
          LEFT JOIN import_logs il ON it.import_log_id = il.id
          LEFT JOIN import_templates temp ON il.template_id = temp.id
-         LEFT JOIN chart_of_accounts coa ON it.account_code = coa.account_code AND coa.tenant_id = $1
          WHERE it.tenant_id = $1 
            AND it.financial_statement_id = $2
          ORDER BY it.transaction_date DESC, it.created_at DESC`,

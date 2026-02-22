@@ -97,6 +97,45 @@ export class EtlController {
     return this.etlService.approveTransactions(tenantId, body.transaction_ids);
   }
 
+  @Get('scenarios')
+  async getScenarios(
+    @Headers('authorization') authHeader: string,
+    @Headers('x-tenant-id') tenantHeader: string | undefined,
+  ) {
+    const tenantId = await this.getTenantFromToken(authHeader, tenantHeader);
+    return this.etlService.listScenarios(tenantId);
+  }
+
+  @Post('post-to-financials')
+  async postToFinancials(
+    @Headers('authorization') authHeader: string,
+    @Headers('x-tenant-id') tenantHeader: string | undefined,
+    @Body() body: {
+      statement_type: 'PL' | 'BS' | 'CF';
+      period_start: string;
+      period_end: string;
+      transaction_ids?: string[];
+      scenario?: string;
+      new_scenario?: { name: string; type: string; description?: string };
+    },
+  ) {
+    const tenantId = await this.getTenantFromToken(authHeader, tenantHeader);
+    const userId = tenantId;
+    if (!body.statement_type || !body.period_start || !body.period_end) {
+      throw new HttpException('statement_type, period_start and period_end are required', HttpStatus.BAD_REQUEST);
+    }
+    return this.etlService.postToFinancials(
+      tenantId,
+      body.statement_type,
+      body.period_start,
+      body.period_end,
+      body.transaction_ids,
+      userId,
+      body.scenario,
+      body.new_scenario,
+    );
+  }
+
   @Delete('transactions/:id')
   async deleteTransaction(
     @Headers('authorization') authHeader: string,

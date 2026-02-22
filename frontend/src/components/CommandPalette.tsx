@@ -33,7 +33,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
     { id: 'nav-consolidation', label: 'Consolidation', icon: '🔗', action: () => navigate('/consolidation'), category: 'navigation', keywords: ['consolidate', 'merge'] },
     { id: 'nav-reports', label: 'Reports', icon: '📑', action: () => navigate('/reports'), category: 'navigation', keywords: ['report', 'analytics'] },
     { id: 'nav-budget-actual', label: 'Budget vs Actual Report', icon: '📊', action: () => navigate('/reports/budget-vs-actual'), category: 'navigation', keywords: ['budget', 'actual', 'variance'] },
-    { id: 'nav-etl', label: 'Data Import (ETL)', icon: '📥', action: () => navigate('/etl-import'), category: 'navigation', keywords: ['import', 'etl', 'upload', 'data'] },
+    { id: 'nav-etl', label: 'Data Import (ETL)', icon: '📥', action: () => navigate('/etl'), category: 'navigation', keywords: ['import', 'etl', 'upload', 'data'] },
     { id: 'nav-dim', label: 'Data Integrity', icon: '🔍', action: () => navigate('/dim'), category: 'navigation', keywords: ['integrity', 'quality', 'validation'] },
     { id: 'nav-coa', label: 'Chart of Accounts', icon: '📊', action: () => navigate('/coa'), category: 'navigation', keywords: ['chart', 'accounts', 'coa'] },
     { id: 'nav-budgets', label: 'Budgets', icon: '💰', action: () => navigate('/budgets'), category: 'navigation', keywords: ['budget', 'planning'] },
@@ -48,7 +48,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
     { id: 'action-new-scenario', label: 'Create New Scenario', icon: '➕', description: 'Start a new financial scenario', action: () => navigate('/scenarios'), category: 'action', keywords: ['new', 'create', 'scenario'] },
     { id: 'action-new-budget', label: 'Create New Budget', icon: '➕', description: 'Create a new budget', action: () => navigate('/budgets'), category: 'action', keywords: ['new', 'create', 'budget'] },
     { id: 'action-new-forecast', label: 'Create Cash Flow Forecast', icon: '➕', description: 'Create a 13-week cash flow forecast', action: () => navigate('/cashflow'), category: 'action', keywords: ['new', 'create', 'cash', 'forecast'] },
-    { id: 'action-import-data', label: 'Import Data', icon: '📤', description: 'Import financial data via ETL', action: () => navigate('/etl-import'), category: 'action', keywords: ['import', 'upload', 'data'] },
+    { id: 'action-import-data', label: 'Import Data', icon: '📤', description: 'Import financial data via ETL', action: () => navigate('/etl'), category: 'action', keywords: ['import', 'upload', 'data'] },
     { id: 'action-refresh', label: 'Refresh Page', icon: '🔄', description: 'Reload current page', action: () => window.location.reload(), category: 'action', keywords: ['refresh', 'reload'] },
   ];
 

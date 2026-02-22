@@ -304,11 +304,6 @@ export default function Navigation() {
                   <span className="icon">📥</span> ETL
                 </Link>
               )}
-              {canManageETL && (
-                <Link to="/etl-import" className={isActive('/etl-import') ? 'active' : ''} title="ETL Import">
-                  <span className="icon">📤</span> ETL Import
-                </Link>
-              )}
               {canManageDimensions && (
                 <Link to="/dim" className={isActive('/dim') ? 'active' : ''} title="Dimensions">
                   <span className="icon">🏷️</span> Dimensions

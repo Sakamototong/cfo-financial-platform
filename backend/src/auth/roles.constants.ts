@@ -35,6 +35,7 @@ export const ROLE_HIERARCHY: Record<string, number> = {
   [Role.ANALYST]: 20,
   [Role.FINANCE_USER]: 30,
   [Role.FINANCE_MANAGER]: 40,
+  'admin': 50, // alias used by demo tokens and frontend
   [Role.TENANT_ADMIN]: 50,
   [Role.SUPER_ADMIN]: 100,
 };

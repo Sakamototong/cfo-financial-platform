@@ -4,11 +4,13 @@ import { EtlController } from './etl.controller';
 import { EtlService } from './etl.service';
 import { AuthModule } from '../auth/auth.module';
 import { FinancialModule } from '../financial/financial.module';
+import { ScenarioModule } from '../scenario/scenario.module';
 
 @Module({
   imports: [
     AuthModule,
     FinancialModule,
+    ScenarioModule,
     MulterModule.register({
       limits: {
         fileSize: 10 * 1024 * 1024, // 10MB

@@ -4,6 +4,7 @@ import { parse } from 'csv-parse/sync';
 import { DatabaseService } from '../database/database.service';
 import { LoggerService } from '../logger/logger.service';
 import { FinancialService, FinancialStatement, LineItem } from '../financial/financial.service';
+import { ScenarioService, Scenario as ScenarioEntity, Assumption } from '../scenario/scenario.service';
 
 export interface ImportResult {
   import_id: string;
@@ -19,6 +20,7 @@ export class EtlService {
     private readonly db: DatabaseService,
     private readonly logger: LoggerService,
     private readonly financialService: FinancialService,
+    private readonly scenarioService: ScenarioService,
   ) {}
 
   /**
@@ -305,9 +307,24 @@ export class EtlService {
 
     const previewRows: any[] = [];
     const errors: string[] = [];
-    if (data.length === 0) return { previewRows, errors };
+    if (data.length === 0) return { format: 'unknown', previewRows, errors, total_rows: 0 };
 
     const firstRow: any = data[0];
+    const allKeys = Array.isArray(firstRow) ? [] : Object.keys(firstRow);
+
+    // ── Transaction format ─────────────────────────────────────────────
+    if (!mapping && this.isTransactionFormat(allKeys)) {
+      const sampleRows = data.slice(0, 10);
+      for (let i = 0; i < sampleRows.length; i++) {
+        const row = this.normaliseTransactionRow(sampleRows[i]);
+        if (!row.date) errors.push(`Row ${i + 1}: missing date`);
+        if (row.amount == null || Number.isNaN(row.amount)) errors.push(`Row ${i + 1}: missing or invalid amount`);
+        previewRows.push(row);
+      }
+      return { format: 'transaction', previewRows, errors, total_rows: data.length };
+    }
+
+    // ── Financial statement format ─────────────────────────────────────
     const metadata = {
       statement_type: firstRow.statement_type || firstRow.type || null,
       period_type: firstRow.period_type || 'monthly',
@@ -316,19 +333,16 @@ export class EtlService {
       scenario: firstRow.scenario || 'actual',
     };
 
-    // Validate metadata
     try {
       if (!metadata.statement_type) errors.push('Missing statement_type in metadata');
       if (!metadata.period_start) errors.push('Missing period_start in metadata');
       if (!metadata.period_end) errors.push('Missing period_end in metadata');
-      // parse dates
       if (metadata.period_start) this.parseDate(metadata.period_start);
       if (metadata.period_end) this.parseDate(metadata.period_end);
     } catch (err) {
       errors.push((err as any).message);
     }
 
-    // Collect first 10 line rows
     for (let i = 1; i < Math.min(data.length, 11); i++) {
       try {
         let parsed: any
@@ -360,12 +374,8 @@ export class EtlService {
           }
         }
 
-        if (!parsed.line_code && !parsed.line_name) {
-          errors.push(`Row ${i + 1}: missing line_code and line_name`)
-        }
-        if (parsed.amount != null && Number.isNaN(parsed.amount)) {
-          errors.push(`Row ${i + 1}: invalid amount`)
-        }
+        if (!parsed.line_code && !parsed.line_name) errors.push(`Row ${i + 1}: missing line_code and line_name`);
+        if (parsed.amount != null && Number.isNaN(parsed.amount)) errors.push(`Row ${i + 1}: invalid amount`);
 
         previewRows.push(parsed)
       } catch (err) {
@@ -373,11 +383,44 @@ export class EtlService {
       }
     }
 
-    return { metadata, previewRows, errors };
+    return { format: 'statement', metadata, previewRows, errors, total_rows: data.length };
+  }
+
+  /** Detect whether a set of column keys looks like transaction data */
+  private isTransactionFormat(keys: string[]): boolean {
+    const lower = keys.map(k => k.toLowerCase());
+    const txCols = ['date', 'transaction_date', 'trans_date', 'txdate'];
+    return txCols.some(c => lower.includes(c)) ||
+      (lower.some(c => c.includes('date')) && lower.some(c => c.includes('amount') || c.includes('debit') || c.includes('credit')));
+  }
+
+  /** Normalise a raw row to a transaction preview row */
+  private normaliseTransactionRow(row: any): any {
+    const keys = Object.keys(row);
+    const find = (...candidates: string[]) => {
+      for (const c of candidates) {
+        const k = keys.find(k => k.toLowerCase() === c.toLowerCase() || k.toLowerCase().replace(/[^a-z]/g, '') === c.replace(/[^a-z]/g, ''));
+        if (k !== undefined && row[k] !== undefined && row[k] !== '') return row[k];
+      }
+      return '';
+    };
+    const amtRaw = find('amount', 'debit', 'credit', 'sum');
+    return {
+      date:            find('date', 'transaction_date', 'trans_date', 'txdate', 'Date'),
+      description:     find('description', 'desc', 'memo', 'memo/description', 'narration', 'details'),
+      amount:          amtRaw !== '' ? parseFloat(String(amtRaw).replace(/,/g, '')) : null,
+      account_code:    find('account', 'account_code', 'account_no', 'gl_code', 'code'),
+      account_name:    find('account_name', 'account name'),
+      vendor_customer: find('name', 'vendor', 'customer', 'vendor_customer', 'payee'),
+      department:      find('department', 'dept', 'cost_center'),
+      category:        find('category', 'type', 'transaction_type'),
+      document_number: find('reference', 'doc_no', 'document_number', 'ref', 'invoice'),
+      currency:        find('currency', 'ccy') || 'THB',
+    };
   }
 
   /**
-   * Preview CSV file
+   * Preview CSV file — auto-detects transaction vs financial-statement format
    */
   async previewCsv(
     tenantId: string,
@@ -391,9 +434,24 @@ export class EtlService {
 
     const previewRows: any[] = [];
     const errors: string[] = [];
-    if (records.length === 0) return { previewRows, errors };
+    if (records.length === 0) return { format: 'unknown', previewRows, errors, total_rows: 0 };
 
     const firstRow: any = records[0];
+    const allKeys = Object.keys(firstRow);
+
+    // ── Transaction format ────────────────────────────────────────────
+    if (!mapping && this.isTransactionFormat(allKeys)) {
+      const sampleRows = records.slice(0, 10);
+      for (let i = 0; i < sampleRows.length; i++) {
+        const row = this.normaliseTransactionRow(sampleRows[i]);
+        if (!row.date) errors.push(`Row ${i + 1}: missing date`);
+        if (row.amount == null || Number.isNaN(row.amount)) errors.push(`Row ${i + 1}: missing or invalid amount`);
+        previewRows.push(row);
+      }
+      return { format: 'transaction', previewRows, errors, total_rows: records.length };
+    }
+
+    // ── Financial statement format ────────────────────────────────────
     const metadata = {
       statement_type: firstRow.statement_type || firstRow.type || null,
       period_type: firstRow.period_type || 'monthly',
@@ -456,7 +514,7 @@ export class EtlService {
       }
     }
 
-    return { metadata, previewRows, errors };
+    return { format: 'statement', metadata, previewRows, errors, total_rows: records.length };
   }
 
   /**
@@ -489,7 +547,7 @@ export class EtlService {
   ): Promise<any> {
     this.logger.info('Starting JSON import', { tenantId, templateId, rows: fileData.length });
 
-    const importId = await this.createImportHistory(tenantId, 'json', `template_${templateId}`, 0, userId);
+    const importId = await this.createImportHistory(tenantId, 'csv', `template_${templateId}`, 0, userId);
 
     try {
       let validRows = 0;
@@ -500,9 +558,10 @@ export class EtlService {
       for (let i = 0; i < fileData.length; i++) {
         try {
           const row = fileData[i];
+          const accountName = row['ชื่อบัญชี'] || row.account_name || null;
           const txResult = await this.db.query(
-            `INSERT INTO etl_transactions
-             (tenant_id, import_log_id, transaction_date, description, amount, account_code, account_name, vendor_customer, department, category, document_number, status, validation_status)
+            `INSERT INTO imported_transactions
+             (tenant_id, import_log_id, transaction_date, description, amount, account_code, vendor_customer, department, category, document_number, status, validation_status, custom_fields)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
              RETURNING id`,
             [
@@ -511,13 +570,13 @@ export class EtlService {
               row.Description || row.description || row['Memo/Description'] || row['รายการ'] || '',
               parseFloat(row.Amount || row.amount || row['เดบิต'] || row['เครดิต'] || '0'),
               row.Account || row.account || row['Account Code'] || row.account_code || row['รหัสบัญชี'] || '',
-              row['ชื่อบัญชี'] || row.account_name || '',
               row.Name || row.name || row.Payee || row.payee || row.vendor_customer || '',
               row.department || row.Department || '',
               row.category || row.Category || row['Transaction Type'] || row.transaction_type || '',
               row.Num || row.num || row.Reference || row.reference || row['Check Number'] || row['เลขที่เอกสาร'] || row.document_number || '',
               autoApprove ? 'approved' : 'pending',
               'valid',
+              accountName ? JSON.stringify({ account_name: accountName }) : null,
             ],
           );
           transactionIds.push(txResult.rows[0].id);
@@ -548,8 +607,8 @@ export class EtlService {
    */
   async getTransactions(tenantId: string, logId?: string): Promise<any[]> {
     try {
-      let query = `SELECT id, transaction_date, description, amount, account_code, account_name, vendor_customer, department, category, document_number, status, validation_status, created_at
-         FROM etl_transactions WHERE tenant_id = $1`;
+      let query = `SELECT id, transaction_date, description, amount, account_code, vendor_customer, department, category, document_number, status, validation_status, created_at
+         FROM imported_transactions WHERE tenant_id = $1`;
       const params: any[] = [tenantId];
       if (logId) {
         query += ` AND import_log_id = $2`;
@@ -569,7 +628,7 @@ export class EtlService {
    */
   async approveTransactions(tenantId: string, transactionIds: string[]): Promise<{ approved: number }> {
     const result = await this.db.query(
-      `UPDATE etl_transactions SET status = 'approved', updated_at = CURRENT_TIMESTAMP
+      `UPDATE imported_transactions SET status = 'approved', updated_at = CURRENT_TIMESTAMP
        WHERE tenant_id = $1 AND id = ANY($2::uuid[]) AND status = 'pending'
        RETURNING id`,
       [tenantId, transactionIds],
@@ -582,7 +641,7 @@ export class EtlService {
    */
   async deleteTransaction(tenantId: string, transactionId: string): Promise<void> {
     await this.db.query(
-      `DELETE FROM etl_transactions WHERE tenant_id = $1 AND id = $2`,
+      `DELETE FROM imported_transactions WHERE tenant_id = $1 AND id = $2`,
       [tenantId, transactionId],
     );
   }
@@ -593,15 +652,15 @@ export class EtlService {
   async getImportLogs(tenantId: string): Promise<any[]> {
     try {
       const result = await this.db.query(
-        `SELECT ih.id, ih.import_type, ih.file_name, ih.status, ih.rows_imported, ih.rows_failed,
-                ih.created_at as started_at, ih.completed_at,
-                ih.rows_imported as valid_rows, ih.rows_failed as invalid_rows,
-                ih.rows_imported + ih.rows_failed as total_rows,
-                COALESCE(it.template_name, ih.import_type) as template_name
-         FROM import_history ih
-         LEFT JOIN import_templates it ON it.id::text = ih.file_name
-         WHERE ih.tenant_id = $1
-         ORDER BY ih.created_at DESC
+        `SELECT il.id, il.import_type, il.file_name, il.status,
+                il.valid_rows, il.invalid_rows,
+                COALESCE(il.valid_rows, 0) + COALESCE(il.invalid_rows, 0) as total_rows,
+                il.started_at, il.completed_at,
+                COALESCE(it.template_name, il.import_type) as template_name
+         FROM import_logs il
+         LEFT JOIN import_templates it ON it.id = il.template_id
+         WHERE il.tenant_id = $1
+         ORDER BY il.started_at DESC
          LIMIT 50`,
         [tenantId],
       );
@@ -617,11 +676,11 @@ export class EtlService {
    */
   async getImportHistory(tenantId: string): Promise<any[]> {
     const result = await this.db.query(
-      `SELECT id, import_type, file_name, status, rows_imported, rows_failed, 
-              error_log, created_at, completed_at
-       FROM import_history 
-       WHERE tenant_id = $1 
-       ORDER BY created_at DESC 
+      `SELECT id, import_type, file_name, status, valid_rows as rows_imported, invalid_rows as rows_failed,
+              validation_errors as error_log, started_at as created_at, completed_at
+       FROM import_logs
+       WHERE tenant_id = $1
+       ORDER BY started_at DESC
        LIMIT 100`,
       [tenantId],
     );
@@ -631,12 +690,14 @@ export class EtlService {
 
   async getImportLog(tenantId: string, importId: string): Promise<string | null> {
     const result = await this.db.query(
-      `SELECT error_log FROM import_history WHERE tenant_id = $1 AND id = $2 LIMIT 1`,
+      `SELECT validation_errors FROM import_logs WHERE tenant_id = $1 AND id = $2 LIMIT 1`,
       [tenantId, importId],
     );
 
     if (!result.rows || result.rows.length === 0) return null;
-    return result.rows[0].error_log || null;
+    const val = result.rows[0].validation_errors;
+    if (!val) return null;
+    return typeof val === 'string' ? val : JSON.stringify(val);
   }
 
   // Helper methods
@@ -649,11 +710,11 @@ export class EtlService {
     userId: string,
   ): Promise<string> {
     const result = await this.db.query(
-      `INSERT INTO import_history 
-       (tenant_id, import_type, file_name, file_size, status, created_by)
-       VALUES ($1, $2, $3, $4, 'processing', $5)
+      `INSERT INTO import_logs
+       (tenant_id, import_type, file_name, file_size, status)
+       VALUES ($1, $2, $3, $4, 'processing')
        RETURNING id`,
-      [tenantId, importType, fileName, fileSize, userId],
+      [tenantId, importType, fileName, fileSize],
     );
 
     return result.rows[0].id;
@@ -667,12 +728,157 @@ export class EtlService {
     errors: string[],
   ): Promise<void> {
     await this.db.query(
-      `UPDATE import_history 
-       SET status = $1, rows_imported = $2, rows_failed = $3, 
-           error_log = $4, completed_at = CURRENT_TIMESTAMP
+      `UPDATE import_logs
+       SET status = $1, valid_rows = $2, invalid_rows = $3, total_rows = $2::int + $3::int,
+           validation_errors = $4, completed_at = CURRENT_TIMESTAMP
        WHERE id = $5`,
-      [status, rowsImported, rowsFailed, errors.join('\n'), importId],
+      [status, rowsImported, rowsFailed, errors.length > 0 ? JSON.stringify(errors) : null, importId],
     );
+  }
+
+  /**
+   * Post approved transactions to Financial Statements
+   * Groups by account_code, sums amounts, creates a FinancialStatement + LineItems in tenant DB
+   */
+  /**
+   * List scenarios for a tenant (delegates to ScenarioService)
+   */
+  async listScenarios(tenantId: string): Promise<any[]> {
+    return this.scenarioService.listScenarios(tenantId);
+  }
+
+  /**
+   * Post approved transactions to Financial Statements
+   * Groups by account_code, sums amounts, creates a FinancialStatement + LineItems in tenant DB
+   */
+  async postToFinancials(
+    tenantId: string,
+    statementType: 'PL' | 'BS' | 'CF',
+    periodStart: string,
+    periodEnd: string,
+    transactionIds?: string[],
+    userId?: string,
+    scenarioName?: string,
+    newScenario?: { name: string; type: string; description?: string },
+  ): Promise<{ statement_id: string; posted_count: number; statement_type: string; period_start: string; period_end: string; scenario: string; scenario_id?: string }> {
+    this.logger.info('Posting approved transactions to financials', { tenantId, statementType, periodStart, periodEnd, scenarioName });
+
+    // Handle scenario: create new if requested, otherwise use provided name or default 'actual'
+    let resolvedScenarioName = scenarioName || 'actual';
+    let scenarioId: string | undefined;
+
+    if (newScenario && newScenario.name) {
+      const scenarioType = (newScenario.type || 'custom') as ScenarioEntity['scenario_type'];
+      const created = await this.scenarioService.createScenario(
+        tenantId,
+        {
+          tenant_id: tenantId,
+          scenario_name: newScenario.name,
+          scenario_type: scenarioType,
+          description: newScenario.description || `Created from ETL Import on ${new Date().toISOString().split('T')[0]}`,
+          is_active: true,
+          created_by: userId || tenantId,
+        },
+        [], // no assumptions for ETL-created scenarios
+      );
+      resolvedScenarioName = newScenario.name;
+      scenarioId = created.scenario.id;
+      this.logger.info('Created new scenario for ETL post', { scenarioId, scenarioName: resolvedScenarioName });
+    }
+
+    // 1. Query approved transactions from central DB
+    let query = `SELECT id, transaction_date, description, amount, account_code, vendor_customer, department, category, document_number, custom_fields
+       FROM imported_transactions
+       WHERE tenant_id = $1 AND status = 'approved'`;
+    const params: any[] = [tenantId];
+
+    if (transactionIds && transactionIds.length > 0) {
+      query += ` AND id = ANY($2::uuid[])`;
+      params.push(transactionIds);
+    }
+    query += ` ORDER BY transaction_date, account_code`;
+
+    const result = await this.db.query(query, params);
+    const transactions = result.rows;
+
+    if (transactions.length === 0) {
+      throw new Error('No approved transactions found to post');
+    }
+
+    // 2. Group by account_code and sum amounts
+    const accountGroups: Record<string, { totalAmount: number; accountName: string; count: number }> = {};
+    for (const tx of transactions) {
+      const code = tx.account_code || 'UNCATEGORIZED';
+      if (!accountGroups[code]) {
+        // Try to get account_name from custom_fields
+        let accountName = code;
+        if (tx.custom_fields) {
+          const cf = typeof tx.custom_fields === 'string' ? JSON.parse(tx.custom_fields) : tx.custom_fields;
+          if (cf.account_name) accountName = cf.account_name;
+        }
+        accountGroups[code] = { totalAmount: 0, accountName, count: 0 };
+      }
+      accountGroups[code].totalAmount += parseFloat(tx.amount) || 0;
+      accountGroups[code].count++;
+    }
+
+    // 3. Build LineItem[] from grouped data
+    const lineItems: LineItem[] = Object.entries(accountGroups).map(([code, group], index) => ({
+      statement_id: '', // will be set by createStatement
+      line_code: code,
+      line_name: group.accountName,
+      line_order: index + 1,
+      amount: Math.round(group.totalAmount * 100) / 100,
+      currency: 'THB',
+      notes: `${group.count} transaction(s) aggregated`,
+    }));
+
+    // 4. Derive period_type from date range
+    const startDate = new Date(periodStart);
+    const endDate = new Date(periodEnd);
+    const daysDiff = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+    let periodType: 'monthly' | 'quarterly' | 'yearly' = 'monthly';
+    if (daysDiff > 92) periodType = 'yearly';
+    else if (daysDiff > 31) periodType = 'quarterly';
+
+    // 5. Build FinancialStatement
+    const statement: FinancialStatement = {
+      tenant_id: tenantId,
+      statement_type: statementType,
+      period_type: periodType,
+      period_start: periodStart,
+      period_end: periodEnd,
+      scenario: resolvedScenarioName,
+      status: 'draft',
+      created_by: userId || tenantId,
+    };
+
+    // 6. Create in tenant DB via financialService
+    const created = await this.financialService.createStatement(tenantId, statement, lineItems);
+    const statementId = created.statement.id as string;
+
+    // 7. Mark transactions as 'posted' in central DB
+    const txIds = transactions.map((tx: any) => tx.id);
+    await this.db.query(
+      `UPDATE imported_transactions
+       SET status = 'posted', financial_statement_id = $1, posted_at = CURRENT_TIMESTAMP, posted_by = $2, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ANY($3::uuid[])`,
+      [statementId, userId || tenantId, txIds],
+    );
+
+    this.logger.info('Posted transactions to financials successfully', {
+      statementId, postedCount: transactions.length, lineItemCount: lineItems.length,
+    });
+
+    return {
+      statement_id: statementId,
+      posted_count: transactions.length,
+      statement_type: statementType,
+      period_start: periodStart,
+      period_end: periodEnd,
+      scenario: resolvedScenarioName,
+      scenario_id: scenarioId,
+    };
   }
 
   private parseStatementType(type: string): 'PL' | 'BS' | 'CF' {

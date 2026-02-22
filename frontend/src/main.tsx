@@ -27,7 +27,6 @@ import Billing from './pages/Billing'
 import CompanyProfile from './pages/CompanyProfile'
 import ChartOfAccounts from './pages/ChartOfAccounts'
 import Budget from './pages/Budget'
-import ETLImport from './pages/ETLImport'
 import BudgetVsActualReport from './pages/BudgetVsActualReport'
 import CashFlowForecast from './pages/CashFlowForecast'
 import VersionHistory from './pages/VersionHistory'
@@ -129,7 +128,7 @@ function ConditionalLayout() {
         <Route path="/projections" element={<ProtectedRoute><RequireRole role="analyst"><Projections/></RequireRole></ProtectedRoute>} />
         <Route path="/consolidation" element={<ProtectedRoute><RequireRole role="analyst"><Consolidation/></RequireRole></ProtectedRoute>} />
         <Route path="/etl" element={<ProtectedRoute><RequireRole role="analyst"><ETL/></RequireRole></ProtectedRoute>} />
-        <Route path="/etl-import" element={<ProtectedRoute><RequireRole role="analyst"><ETLImport/></RequireRole></ProtectedRoute>} />
+        <Route path="/etl-import" element={<Navigate to="/etl" replace />} />
         <Route path="/dim" element={<ProtectedRoute><RequireRole role="analyst"><DIM/></RequireRole></ProtectedRoute>} />
         <Route path="/coa" element={<ProtectedRoute><RequireRole role="analyst"><ChartOfAccounts/></RequireRole></ProtectedRoute>} />
         <Route path="/budgets" element={<ProtectedRoute><RequireRole role="analyst"><Budget/></RequireRole></ProtectedRoute>} />

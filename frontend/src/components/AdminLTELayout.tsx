@@ -225,14 +225,6 @@ export default function AdminLTELayout({ children }: AdminLTELayoutProps) {
                 </Link>
               </li>
               )}
-              {canManageETL && (
-              <li className={`nav-item ${isActive('/etl-import') ? 'menu-open' : ''}`}>
-                <Link to="/etl-import" className={`nav-link ${isActive('/etl-import') ? 'active' : ''}`}>
-                  <i className="nav-icon bi bi-upload"></i>
-                  <p>ETL Import</p>
-                </Link>
-              </li>
-              )}
               {canManageDimensions && (
               <li className={`nav-item ${isActive('/dim') ? 'menu-open' : ''}`}>
                 <Link to="/dim" className={`nav-link ${isActive('/dim') ? 'active' : ''}`}>
