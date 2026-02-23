@@ -54,9 +54,125 @@ export class EtlEnhancedService {
     return result.rows[0];
   }
 
+  async deleteTemplate(templateId: string) {
+    const pool = await this.databaseService.getTenantPool('admin');
+    await pool.query(`UPDATE import_templates SET is_active = FALSE WHERE id = $1`, [templateId]);
+    return { success: true };
+  }
+
+  async downloadTemplate(templateId: string): Promise<{ filename: string; buffer: Buffer; contentType: string }> {
+    let tpl: any = null;
+
+    // Try admin tenant pool (new enhanced schema)
+    try {
+      const pool = await this.databaseService.getTenantPool('admin');
+      const r = await pool.query(
+        `SELECT id, template_name, template_type, file_format, column_mappings
+         FROM import_templates WHERE id = $1 AND is_active = true`,
+        [templateId],
+      );
+      if (r.rows.length > 0) tpl = r.rows[0];
+    } catch (_) { /* ignore schema mismatch */ }
+
+    // Fallback: admin tenant pool old schema (file_type / column_mapping)
+    if (!tpl) {
+      try {
+        const pool = await this.databaseService.getTenantPool('admin');
+        const r = await pool.query(
+          `SELECT id, template_name, file_type AS file_format, column_mapping AS column_mappings
+           FROM import_templates WHERE id = $1 AND is_active = true`,
+          [templateId],
+        );
+        if (r.rows.length > 0) tpl = { template_type: 'custom', ...r.rows[0] };
+      } catch (_) { /* ignore */ }
+    }
+
+    // Fallback: main postgres DB
+    if (!tpl) {
+      try {
+        const r = await this.databaseService.query(
+          `SELECT id, template_name, template_type, file_format, column_mappings
+           FROM import_templates WHERE id = $1 AND is_active = true`,
+          [templateId],
+        );
+        if (r.rows.length > 0) tpl = r.rows[0];
+      } catch (_) { /* ignore */ }
+    }
+
+    if (!tpl) throw new Error('Template not found');
+
+    const mappings: Record<string, any> = tpl.column_mappings || {};
+    const headers: string[] = Object.values(mappings)
+      .map((m: any) => m.source_column)
+      .filter(Boolean);
+
+    const sampleRows = this.buildSampleRows(tpl.template_type || 'custom', headers);
+    const csvCell = (v: string) => {
+      const s = String(v ?? '');
+      return s.includes(',') || s.includes('"') || s.includes('\n')
+        ? `"${s.replace(/"/g, '""')}"`
+        : s;
+    };
+    const lines = [
+      headers.map(csvCell).join(','),
+      ...sampleRows.map(row => headers.map(h => csvCell(row[h] ?? '')).join(',')),
+    ];
+    const csv = '\uFEFF' + lines.join('\r\n');
+    const safeName = (tpl.template_name || 'template').replace(/[^a-z0-9\u0e01-\u0e59 ]/gi, '_').trim().replace(/ +/g, '_');
+    return { filename: `${safeName}_template.csv`, buffer: Buffer.from(csv, 'utf8'), contentType: 'text/csv; charset=utf-8' };
+  }
+
+  private buildSampleRows(templateType: string, headers: string[]): Record<string, string>[] {
+    const today = new Date();
+    const fmt = (d: Date) => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+    const d1 = fmt(today);
+    const d2 = fmt(new Date(today.getTime() - 86400000));
+    if (templateType === 'thai_accounting') {
+      return [
+        { '\u0e27\u0e31\u0e19\u0e17\u0e35\u0e48': d1, '\u0e40\u0e25\u0e02\u0e17\u0e35\u0e48\u0e40\u0e2d\u0e01\u0e2a\u0e32\u0e23': 'PV-001', '\u0e23\u0e32\u0e22\u0e01\u0e32\u0e23': '\u0e08\u0e48\u0e32\u0e22\u0e04\u0e48\u0e32\u0e40\u0e0a\u0e48\u0e32', '\u0e23\u0e2b\u0e31\u0e2a\u0e1a\u0e31\u0e0d\u0e0a\u0e35': '6200', '\u0e0a\u0e37\u0e48\u0e2d\u0e1a\u0e31\u0e0d\u0e0a\u0e35': '\u0e04\u0e48\u0e32\u0e40\u0e0a\u0e48\u0e32', '\u0e40\u0e14\u0e1a\u0e34\u0e15': '25000.00', '\u0e40\u0e04\u0e23\u0e14\u0e34\u0e15': '', '\u0e2d\u0e49\u0e32\u0e07\u0e2d\u0e34\u0e07': 'RENT-001' },
+        { '\u0e27\u0e31\u0e19\u0e17\u0e35\u0e48': d2, '\u0e40\u0e25\u0e02\u0e17\u0e35\u0e48\u0e40\u0e2d\u0e01\u0e2a\u0e32\u0e23': 'RC-001', '\u0e23\u0e32\u0e22\u0e01\u0e32\u0e23': '\u0e23\u0e31\u0e1a\u0e0a\u0e33\u0e23\u0e30\u0e04\u0e48\u0e32\u0e1a\u0e23\u0e34\u0e01\u0e32\u0e23', '\u0e23\u0e2b\u0e31\u0e2a\u0e1a\u0e31\u0e0d\u0e0a\u0e35': '4100', '\u0e0a\u0e37\u0e48\u0e2d\u0e1a\u0e31\u0e0d\u0e0a\u0e35': '\u0e23\u0e32\u0e22\u0e44\u0e14\u0e49', '\u0e40\u0e14\u0e1a\u0e34\u0e15': '', '\u0e40\u0e04\u0e23\u0e14\u0e34\u0e15': '150000.00', '\u0e2d\u0e49\u0e32\u0e07\u0e2d\u0e34\u0e07': 'INV-001' },
+      ];
+    }
+    if (templateType === 'quickbooks') {
+      return [
+        { 'Date': d1, 'Transaction Type': 'Expense', 'Num': '1001', 'Name': 'Office Depot', 'Memo/Description': 'Office supplies', 'Account': '6300', 'Split': '-SPLIT-', 'Amount': '-250.50', 'Balance': '9749.50' },
+        { 'Date': d2, 'Transaction Type': 'Income', 'Num': 'INV-001', 'Name': 'ABC Corp', 'Memo/Description': 'Consulting payment', 'Account': '4100', 'Split': '-SPLIT-', 'Amount': '8500.00', 'Balance': '18249.50' },
+      ];
+    }
+    if (templateType === 'xero') {
+      return [
+        { 'Date': d1, 'Payee': 'ABC Corp', 'Amount': '5000.00', 'Reference': 'INV-001', 'Description': 'Payment received', 'Account Code': '4100', 'Check Number': '' },
+        { 'Date': d2, 'Payee': 'Office Depot', 'Amount': '-250.00', 'Reference': 'EXP-001', 'Description': 'Office supplies', 'Account Code': '6300', 'Check Number': '1001' },
+      ];
+    }
+    if (templateType === 'bank_statement') {
+      return [
+        { 'Date': d1, 'Description': 'Transfer from client', 'Amount': '50000.00', 'Balance': '150000.00', 'Reference': 'TRF-001', 'Account': '1000' },
+        { 'Date': d2, 'Description': 'Supplier payment', 'Amount': '-15000.00', 'Balance': '135000.00', 'Reference': 'PAY-001', 'Account': '2000' },
+      ];
+    }
+    if (templateType === 'journal') {
+      return [
+        { 'Date': d1, 'Account Code': '6000', 'Description': 'Salary expense', 'Debit': '85000.00', 'Credit': '', 'Reference': 'JV-001' },
+        { 'Date': d1, 'Account Code': '1000', 'Description': 'Cash paid for salary', 'Debit': '', 'Credit': '85000.00', 'Reference': 'JV-001' },
+      ];
+    }
+    if (templateType === 'pl_statement') {
+      return [
+        { 'Line Code': 'REV-001', 'Line Name': 'Sales Revenue', 'Amount': '500000.00', 'Currency': 'THB', 'Notes': '' },
+        { 'Line Code': 'EXP-001', 'Line Name': 'Cost of Goods Sold', 'Amount': '200000.00', 'Currency': 'THB', 'Notes': '' },
+        { 'Line Code': 'EXP-002', 'Line Name': 'Operating Expenses', 'Amount': '100000.00', 'Currency': 'THB', 'Notes': '' },
+      ];
+    }
+    // generic / transaction / custom
+    return [
+      { 'Date': d1, 'Amount': '5000.00', 'Reference': 'REF-001', 'Description': 'Sample revenue entry', 'Account': '4100' },
+      { 'Date': d2, 'Amount': '-1200.00', 'Reference': 'REF-002', 'Description': 'Sample expense entry', 'Account': '6300' },
+    ];
+  }
+
   async updateTemplate(templateId: string, dto: UpdateImportTemplateDto) {
     const pool = await this.databaseService.getTenantPool('admin');
-    
     const fields = [];
     const values = [];
     let idx = 1;

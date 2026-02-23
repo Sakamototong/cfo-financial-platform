@@ -537,18 +537,49 @@ export class EtlService {
 
   /**
    * Generate and return a CSV template file for download.
-   * Headers are taken from column_mappings[field].source_column.
-   * Sample rows use realistic data based on template_type.
+   * Searches main postgres DB first, then falls back to admin tenant pool (new and old schema).
    */
   async downloadTemplate(templateId: string): Promise<{ filename: string; buffer: Buffer; contentType: string }> {
-    const result = await this.db.query(
-      `SELECT id, template_name, template_type, file_format, column_mappings
-       FROM import_templates WHERE id = $1 AND is_active = true`,
-      [templateId],
-    );
-    if (result.rows.length === 0) throw new Error('Template not found');
+    let tpl: any = null;
 
-    const tpl = result.rows[0];
+    // Try main postgres DB (new schema)
+    try {
+      const result = await this.db.query(
+        `SELECT id, template_name, template_type, file_format, column_mappings
+         FROM import_templates WHERE id = $1 AND is_active = true`,
+        [templateId],
+      );
+      if (result.rows.length > 0) tpl = result.rows[0];
+    } catch (_) { /* ignore */ }
+
+    // Fallback: admin tenant pool (new enhanced schema)
+    if (!tpl) {
+      try {
+        const pool = await this.db.getTenantPool('admin');
+        const r = await pool.query(
+          `SELECT id, template_name, template_type, file_format, column_mappings
+           FROM import_templates WHERE id = $1 AND is_active = true`,
+          [templateId],
+        );
+        if (r.rows.length > 0) tpl = r.rows[0];
+      } catch (_) { /* ignore */ }
+    }
+
+    // Fallback: admin tenant pool (old schema — column_mapping / file_type)
+    if (!tpl) {
+      try {
+        const pool = await this.db.getTenantPool('admin');
+        const r = await pool.query(
+          `SELECT id, template_name, file_type AS file_format, column_mapping AS column_mappings
+           FROM import_templates WHERE id = $1 AND is_active = true`,
+          [templateId],
+        );
+        if (r.rows.length > 0) tpl = { template_type: 'custom', ...r.rows[0] };
+      } catch (_) { /* ignore */ }
+    }
+
+    if (!tpl) throw new Error('Template not found');
+
     const mappings: Record<string, any> = tpl.column_mappings || {};
 
     // Build ordered header list from source_column values

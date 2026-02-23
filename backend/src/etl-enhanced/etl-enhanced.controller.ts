@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Req, Res, StreamableFile } from '@nestjs/common';
+import { Response } from 'express';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/jwt.guard';
@@ -22,6 +23,26 @@ export class EtlEnhancedController {
   @Get('templates')
   async getTemplates() {
     return this.etlService.getTemplates();
+  }
+
+  @Get('templates/:id/download')
+  async downloadTemplate(
+    @Param('id') id: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    let result: { filename: string; buffer: Buffer; contentType: string };
+    try {
+      result = await this.etlService.downloadTemplate(id);
+    } catch (err: any) {
+      res.status(404).json({ message: err.message || 'Template not found' });
+      return;
+    }
+    res.set({
+      'Content-Type': result.contentType,
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(result.filename)}`,
+      'Content-Length': String(result.buffer.length),
+    });
+    return new StreamableFile(result.buffer);
   }
 
   @Get('templates/:id')
