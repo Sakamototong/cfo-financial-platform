@@ -13,6 +13,7 @@ import {
   Param,
   Res,
   UseGuards,
+  StreamableFile,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -54,17 +55,21 @@ export class EtlController {
   @Get('templates/:id/download')
   async downloadTemplate(
     @Param('id') templateId: string,
-    @Res() res: Response,
+    @Res({ passthrough: true }) res: Response,
   ) {
+    let result: { filename: string; buffer: Buffer; contentType: string };
     try {
-      const { filename, buffer, contentType } = await this.etlService.downloadTemplate(templateId);
-      res.setHeader('Content-Type', contentType);
-      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
-      res.setHeader('Content-Length', String(buffer.length));
-      return res.send(buffer);
+      result = await this.etlService.downloadTemplate(templateId);
     } catch (err: any) {
       throw new HttpException(err.message || 'Template not found', HttpStatus.NOT_FOUND);
     }
+    const { filename, buffer, contentType } = result;
+    res.set({
+      'Content-Type': contentType,
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
+      'Content-Length': String(buffer.length),
+    });
+    return new StreamableFile(buffer);
   }
 
   @Post('import')
