@@ -518,12 +518,12 @@ export class EtlService {
   }
 
   /**
-   * Get all import templates
+   * Get all import templates (master / global — no tenant filter)
    */
   async getTemplates(): Promise<any[]> {
     try {
       const result = await this.db.query(
-        `SELECT id, template_name, template_type, description, file_format, column_mappings, validation_rules, is_active
+        `SELECT id, template_name, template_type, description, file_format, column_mappings, validation_rules, is_active, is_system
          FROM import_templates
          WHERE is_active = true
          ORDER BY template_type`,
@@ -533,6 +533,82 @@ export class EtlService {
       this.logger.error('Error loading templates', { error: (error as any).message });
       return [];
     }
+  }
+
+  /**
+   * Generate and return a CSV template file for download.
+   * Headers are taken from column_mappings[field].source_column.
+   * Sample rows use realistic data based on template_type.
+   */
+  async downloadTemplate(templateId: string): Promise<{ filename: string; buffer: Buffer; contentType: string }> {
+    const result = await this.db.query(
+      `SELECT id, template_name, template_type, file_format, column_mappings
+       FROM import_templates WHERE id = $1 AND is_active = true`,
+      [templateId],
+    );
+    if (result.rows.length === 0) throw new Error('Template not found');
+
+    const tpl = result.rows[0];
+    const mappings: Record<string, any> = tpl.column_mappings || {};
+
+    // Build ordered header list from source_column values
+    const headers: string[] = Object.values(mappings)
+      .map((m: any) => m.source_column)
+      .filter(Boolean);
+
+    // Sample rows per template type
+    const sampleRows = this.buildSampleRows(tpl.template_type, headers);
+
+    // Escape CSV cell
+    const csvCell = (v: string) => {
+      const s = String(v ?? '');
+      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+
+    const lines = [
+      headers.map(csvCell).join(','),
+      ...sampleRows.map(row => headers.map(h => csvCell(row[h] ?? '')).join(',')),
+    ];
+    const csv = '\uFEFF' + lines.join('\r\n'); // UTF-8 BOM for Excel Thai character support
+
+    const safeName = tpl.template_name.replace(/[^a-z0-9ก-๙ ]/gi, '_').trim().replace(/ +/g, '_');
+    const filename = `${safeName}_template.csv`;
+    return { filename, buffer: Buffer.from(csv, 'utf8'), contentType: 'text/csv; charset=utf-8' };
+  }
+
+  private buildSampleRows(templateType: string, headers: string[]): Record<string, string>[] {
+    const today = new Date();
+    const fmt = (d: Date) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+    const d1 = fmt(today);
+    const d2 = fmt(new Date(today.getTime() - 86400000));
+
+    if (templateType === 'thai_accounting') {
+      return [
+        { 'วันที่': d1, 'เลขที่เอกสาร': 'PV-2601-001', 'รายการ': 'จ่ายค่าเช่าสำนักงาน', 'รหัสบัญชี': '6200', 'ชื่อบัญชี': 'ค่าเช่า', 'เดบิต': '25000.00', 'เครดิต': '', 'อ้างอิง': 'RENT-001' },
+        { 'วันที่': d2, 'เลขที่เอกสาร': 'RC-2601-001', 'รายการ': 'รับชำระค่าบริการ', 'รหัสบัญชี': '4100', 'ชื่อบัญชี': 'รายได้บริการ', 'เดบิต': '', 'เครดิต': '150000.00', 'อ้างอิง': 'INV-001' },
+        { 'วันที่': d2, 'เลขที่เอกสาร': 'PV-2601-002', 'รายการ': 'จ่ายเงินเดือนพนักงาน', 'รหัสบัญชี': '6100', 'ชื่อบัญชี': 'เงินเดือนและค่าจ้าง', 'เดบิต': '85000.00', 'เครดิต': '', 'อ้างอิง': 'SALARY-001' },
+      ];
+    }
+    if (templateType === 'quickbooks') {
+      return [
+        { 'Date': d1, 'Transaction Type': 'Expense', 'Num': '1001', 'Name': 'Office Depot', 'Memo/Description': 'Office supplies', 'Account': '6300', 'Split': '-SPLIT-', 'Amount': '-250.50', 'Balance': '9749.50' },
+        { 'Date': d2, 'Transaction Type': 'Income', 'Num': 'INV-001', 'Name': 'ABC Corporation', 'Memo/Description': 'Consulting service payment', 'Account': '4100', 'Split': '-SPLIT-', 'Amount': '8500.00', 'Balance': '18249.50' },
+        { 'Date': d2, 'Transaction Type': 'Expense', 'Num': '1002', 'Name': 'Jane Smith', 'Memo/Description': 'Salary January', 'Account': '6100', 'Split': '-SPLIT-', 'Amount': '-4200.00', 'Balance': '14049.50' },
+      ];
+    }
+    if (templateType === 'xero') {
+      return [
+        { 'Date': d1, 'Payee': 'ABC Corp', 'Amount': '5000.00', 'Reference': 'INV-001', 'Description': 'Consulting payment received', 'Account Code': '4100', 'Check Number': '' },
+        { 'Date': d2, 'Payee': 'Office Depot', 'Amount': '-250.00', 'Reference': 'EXP-001', 'Description': 'Office supplies', 'Account Code': '6300', 'Check Number': '1001' },
+        { 'Date': d2, 'Payee': 'Starlink Internet', 'Amount': '-99.00', 'Reference': 'EXP-002', 'Description': 'Monthly internet service', 'Account Code': '6400', 'Check Number': '1002' },
+      ];
+    }
+    // default / custom
+    return [
+      { 'Date': d1, 'Amount': '5000.00', 'Reference': 'REF-001', 'Description': 'Sales revenue', 'Account': '4100' },
+      { 'Date': d2, 'Amount': '-1200.00', 'Reference': 'REF-002', 'Description': 'Office expenses', 'Account': '6300' },
+      { 'Date': d2, 'Amount': '-3500.00', 'Reference': 'REF-003', 'Description': 'Salary payment', 'Account': '6100' },
+    ];
   }
 
   /**

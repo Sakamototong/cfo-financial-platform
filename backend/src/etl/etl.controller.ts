@@ -51,6 +51,22 @@ export class EtlController {
     return this.etlService.getTemplates();
   }
 
+  @Get('templates/:id/download')
+  async downloadTemplate(
+    @Param('id') templateId: string,
+    @Res() res: Response,
+  ) {
+    try {
+      const { filename, buffer, contentType } = await this.etlService.downloadTemplate(templateId);
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+      res.setHeader('Content-Length', String(buffer.length));
+      return res.send(buffer);
+    } catch (err: any) {
+      throw new HttpException(err.message || 'Template not found', HttpStatus.NOT_FOUND);
+    }
+  }
+
   @Post('import')
   async importJson(
     @Headers('authorization') authHeader: string,

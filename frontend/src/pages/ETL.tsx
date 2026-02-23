@@ -192,7 +192,20 @@ export default function ETL() {
     } catch (e: any) { showToast(e?.response?.data?.message || 'Post failed', 'danger') }
     setPosting(false)
   }
-
+  // ─── Download template CSV ─────────────────────────────────────
+  async function downloadTemplate(templateId: string, templateName: string) {
+    try {
+      const base = (import.meta as any)?.env?.VITE_API_BASE || 'http://localhost:3000'
+      const res = await fetch(`${base}/etl/templates/${templateId}/download`, { headers: getAuthHeaders() })
+      if (!res.ok) throw new Error('Download failed')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a'); a.href = url
+      a.download = `${templateName.replace(/[^a-z0-9ก-๙]/gi, '_')}_template.csv`
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+      showToast(`Downloaded: ${templateName} template`, 'success')
+    } catch { showToast('Download template failed', 'danger') }
+  }
   // ─── Download log ─────────────────────────────────────────────────
   async function downloadLog(importId: string, fallbackLog?: string) {
     try {
@@ -344,16 +357,27 @@ export default function ETL() {
                   {templates.map(t => (
                     <div className="col-md-4" key={t.id}>
                       <div
-                        className={`card h-100 cursor-pointer border-2 ${selectedTemplate?.id === t.id ? 'border-primary bg-primary bg-opacity-10' : 'border-light'}`}
+                        className={`card h-100 border-2 ${selectedTemplate?.id === t.id ? 'border-primary bg-primary bg-opacity-10' : 'border-light'}`}
                         style={{ cursor: 'pointer' }}
                         onClick={() => { setSelectedTemplate(selectedTemplate?.id === t.id ? null : t); setImportType(t.file_format === 'excel' ? 'excel' : 'csv') }}>
                         <div className="card-body py-2 px-3">
                           <div className="d-flex align-items-start gap-2">
                             <i className={`bi bi-file-earmark-${t.file_format === 'excel' ? 'spreadsheet text-success' : 'csv text-primary'} fs-4 flex-shrink-0`}></i>
-                            <div>
+                            <div className="flex-grow-1">
                               <div className="fw-semibold small">{t.template_name}</div>
                               <small className="text-muted">{t.description}</small>
-                              <div className="mt-1"><span className="badge bg-secondary" style={{ fontSize: '0.6rem' }}>{t.template_type}</span> <span className="badge bg-info" style={{ fontSize: '0.6rem' }}>{t.file_format.toUpperCase()}</span></div>
+                              <div className="mt-1 d-flex align-items-center gap-1 flex-wrap">
+                                <span className="badge bg-secondary" style={{ fontSize: '0.6rem' }}>{t.template_type}</span>
+                                <span className="badge bg-info" style={{ fontSize: '0.6rem' }}>{t.file_format.toUpperCase()}</span>
+                                {(t as any).is_system && <span className="badge bg-warning text-dark" style={{ fontSize: '0.6rem' }}><i className="bi bi-globe me-1"></i>Master</span>}
+                                <button
+                                  className="btn btn-outline-success py-0 px-1 ms-auto"
+                                  style={{ fontSize: '0.62rem', lineHeight: 1.4 }}
+                                  title="Download template CSV"
+                                  onClick={e => { e.stopPropagation(); downloadTemplate(t.id, t.template_name) }}>
+                                  <i className="bi bi-download me-1"></i>Download
+                                </button>
+                              </div>
                             </div>
                           </div>
                         </div>
