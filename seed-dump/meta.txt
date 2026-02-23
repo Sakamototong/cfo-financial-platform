@@ -1,0 +1,5 @@
+CFO Platform — Local DB Seed Export
+Exported:  2026-02-23 06:11:33
+Source:    Sommanuts-MacBook-Air.local
+ADMIN_DB:  tenant_admin_tenant_admin
+ACME_DB:   tenant_acme_corp_155cf73a2fe388f0
