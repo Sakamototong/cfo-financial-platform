@@ -85,8 +85,12 @@ api.interceptors.request.use((config: AxiosRequestConfig) => {
   if (token) config.headers['Authorization'] = `Bearer ${token}`
   if (tenant) config.headers['X-Tenant-Id'] = tenant
   
-  // Set timeout based on endpoint
-  if (config.url) {
+  // Set timeout based on endpoint.
+  // IMPORTANT: Do NOT set config.timeout when config.signal is already provided.
+  // Axios 1.6 merges timeout + signal via AbortSignal.any(), which is unavailable
+  // in Safari < 17.4 and Chrome < 116 — causing "signal.addEventListener is not a function".
+  // When a user signal is present, rely on the instance-level timeout instead.
+  if (config.url && !(config as any).signal) {
     config.timeout = getTimeoutForUrl(config.url)
   }
   
