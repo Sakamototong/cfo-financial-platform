@@ -44,6 +44,17 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 const MAX_RETRY_ATTEMPTS = 3
 const BASE_RETRY_DELAY = 1000 // 1 second base delay
 
+/**
+ * Axios 1.x stores an internal signal/cancelToken on the request config after processing.
+ * Re-using that config for a retry causes "signal.addEventListener is not a function"
+ * because the stale internal signal is not a proper AbortSignal.
+ * Strip both properties so Axios starts clean for each retry.
+ */
+function prepareRetryConfig(config: AxiosRequestConfig): AxiosRequestConfig {
+  const { signal: _s, cancelToken: _c, ...rest } = config as any
+  return rest
+}
+
 // Determine if endpoint needs longer timeout
 function getTimeoutForUrl(url?: string): number {
   if (!url) return TIMEOUTS.default
@@ -107,7 +118,7 @@ api.interceptors.response.use(
         })
         
         await sleep(delayMs)
-        return api(originalRequest)
+        return api(prepareRetryConfig(originalRequest))
       } else {
         console.error('Max retry attempts reached for network error')
         return Promise.reject(new Error('Network error. Please check your connection and try again.'))
@@ -130,7 +141,7 @@ api.interceptors.response.use(
         console.log(`Rate limited. Retrying after ${delayMs}ms (attempt ${retryCount + 1}/${MAX_RETRY_ATTEMPTS})`)
         
         await sleep(delayMs)
-        return api(originalRequest)
+        return api(prepareRetryConfig(originalRequest))
       } else {
         console.error('Max retry attempts reached for rate limit')
         return Promise.reject(new Error('Too many requests. Please try again later.'))
@@ -148,7 +159,7 @@ api.interceptors.response.use(
         console.log(`Service unavailable. Retrying after ${delayMs}ms (attempt ${retryCount + 1}/2)`)
         
         await sleep(delayMs)
-        return api(originalRequest)
+        return api(prepareRetryConfig(originalRequest))
       }
     }
     
@@ -163,7 +174,7 @@ api.interceptors.response.use(
         console.log(`Request timeout. Retrying after ${delayMs}ms (attempt ${retryCount + 1}/${MAX_RETRY_ATTEMPTS})`)
         
         await sleep(delayMs)
-        return api(originalRequest)
+        return api(prepareRetryConfig(originalRequest))
       }
     }
     
