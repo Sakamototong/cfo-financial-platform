@@ -461,8 +461,7 @@ export class AdminService {
    * Write audit log
    */
   async writeAuditLog(tenantId: string, log: AuditLog): Promise<void> {
-    await this.db.queryTenant(
-      tenantId,
+    await this.db.query(
       `INSERT INTO audit_logs 
        (tenant_id, user_email, action, resource_type, resource_id, changes, ip_address, user_agent)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
@@ -541,7 +540,7 @@ export class AdminService {
       params.push(filters.limit);
     }
 
-    const result = await this.db.queryTenant(tenantId, query, params);
+    const result = await this.db.query(query, params);
     return result.rows;
   }
 }

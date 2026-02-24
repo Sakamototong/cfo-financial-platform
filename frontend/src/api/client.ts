@@ -11,7 +11,10 @@ const TIMEOUTS = {
 
 const api = axios.create({
   baseURL: API_BASE,
-  timeout: TIMEOUTS.default,
+  timeout: 0, // Don't set instance-level timeout — it causes Axios 1.6 to call
+              // AbortSignal.any([userSignal, timeoutSignal]) which is unavailable
+              // in older Safari/Chrome, triggering "signal.addEventListener is not a function".
+              // Per-request timeout is set below only when no signal is present.
 })
 
 // A lightweight fetcher used only for refresh to avoid interceptor loops
@@ -85,11 +88,11 @@ api.interceptors.request.use((config: AxiosRequestConfig) => {
   if (token) config.headers['Authorization'] = `Bearer ${token}`
   if (tenant) config.headers['X-Tenant-Id'] = tenant
   
-  // Set timeout based on endpoint.
-  // IMPORTANT: Do NOT set config.timeout when config.signal is already provided.
-  // Axios 1.6 merges timeout + signal via AbortSignal.any(), which is unavailable
-  // in Safari < 17.4 and Chrome < 116 — causing "signal.addEventListener is not a function".
-  // When a user signal is present, rely on the instance-level timeout instead.
+  // Set timeout per request, BUT only when no AbortSignal is present.
+  // Axios 1.6 merges timeout + signal into one via AbortSignal.any() — which
+  // crashes on browsers that don't support AbortSignal.any (Safari < 17.4, Chrome < 116).
+  // When a signal IS present, the component controls cancellation; the instance
+  // timeout (set to 0 above) won't interfere.
   if (config.url && !(config as any).signal) {
     config.timeout = getTimeoutForUrl(config.url)
   }
