@@ -85,6 +85,9 @@ api.interceptors.request.use((config: AxiosRequestConfig) => {
 api.interceptors.response.use(
   r => r,
   async (error: AxiosError) => {
+    // error.config can be undefined for programmatic/canceled errors
+    if (!error.config) return Promise.reject(error)
+
     const originalRequest = error.config as AxiosRequestConfig & { 
       _retry?: boolean
       _retryCount?: number 
