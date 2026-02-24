@@ -65,7 +65,9 @@ export class FinancialController {
 
     // Accept demo tokens in local development
     if (token.startsWith('demo-token-')) {
-      return 'admin';
+      const { AuthService } = require('../auth/auth.service');
+      const parsed = AuthService.parseDemoToken(token);
+      return parsed?.tenant || 'admin';
     }
 
     const payload = await this.jwksService.verify(token);
@@ -206,14 +208,22 @@ export class FinancialController {
     @Param('id') id: string,
     @Body() dto: UpdateStatusDto,
   ) {
-    const tenantId = await this.getTenantFromToken(authHeader, tenantHeader);
+    try {
+      console.log('[updateStatementStatus] called', { id, status: dto?.status, tenant: tenantHeader });
+      const tenantId = await this.getTenantFromToken(authHeader, tenantHeader);
 
-    return this.financialService.updateStatementStatus(
-      tenantId,
-      id,
-      dto.status,
-      tenantId,
-    );
+      const result = await this.financialService.updateStatementStatus(
+        tenantId,
+        id,
+        dto.status,
+        tenantId,
+      );
+      console.log('[updateStatementStatus] success', { id, newStatus: dto?.status });
+      return result;
+    } catch (error: any) {
+      console.error('[updateStatementStatus] ERROR', error?.message, error?.stack);
+      throw error;
+    }
   }
 
   @Put('statements/:id')

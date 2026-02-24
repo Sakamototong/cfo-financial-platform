@@ -136,11 +136,14 @@ export default function Financials() {
   async function changeStatus(statement: any, newStatus: string) {
     setStatusChanging(statement.id)
     try {
-      await api.put(`/financial/statements/${statement.id}/status`, { status: newStatus })
+      console.log('[changeStatus] PUT /financial/statements/' + statement.id + '/status', { status: newStatus })
+      const res = await api.put(`/financial/statements/${statement.id}/status`, { status: newStatus })
+      console.log('[changeStatus] success', res.status, res.data)
       setList(prev => prev.map(s => s.id === statement.id ? { ...s, status: newStatus } : s))
       showToast(`Statement ${newStatus === 'approved' ? 'approved' : 'locked'} successfully`)
     } catch (e: any) {
-      showToast(e?.response?.data?.message || 'Failed to update status', 'danger')
+      console.error('[changeStatus] error', e?.response?.status, e?.response?.data, e?.message, e)
+      showToast(e?.response?.data?.message || e?.message || 'Failed to update status', 'danger')
     } finally { setStatusChanging(null) }
   }
 

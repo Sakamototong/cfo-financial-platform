@@ -33,21 +33,22 @@ export class JwtAuthGuard implements CanActivate {
     
     // Allow demo tokens for testing
     if (token.startsWith('demo-token-')) {
-      // Extract role from token name (e.g., demo-token-super-admin-1234567890 -> super_admin)
-      // Remove 'demo-token-' prefix and timestamp suffix
-      const tokenPart = token.replace('demo-token-', '');
-      // If token ends with timestamp (digits), remove it
-      const rolePart = tokenPart.replace(/-\d+$/, '');
-      const role = rolePart.replace(/-/g, '_'); // Convert hyphens to underscores
+      const { AuthService } = require('./auth.service');
+      const parsed = AuthService.parseDemoToken(token);
+      const role = parsed?.role || 'admin';
+      const demoUsername = parsed?.username || 'admin';
+      const demoTenant = parsed?.tenant || 'admin';
       
-      // Default demo user is 'admin', but allow overriding via X-Tenant-Id header for local dev
-      const tenantHeader = req.headers?.['x-tenant-id'] || req.headers?.['X-Tenant-Id']
-      const tenantId = typeof tenantHeader === 'string' ? tenantHeader : undefined
+      // Allow overriding tenant via X-Tenant-Id header for dev convenience
+      const tenantHeader = req.headers?.['x-tenant-id'] || req.headers?.['X-Tenant-Id'];
+      const tenantId = typeof tenantHeader === 'string' ? tenantHeader : demoTenant;
       
       req.user = { 
-        sub: 'admin', 
-        preferred_username: tenantId || 'admin',
-        roles: [role, Role.FINANCE_USER], // Demo admin gets super_admin + finance_user
+        sub: demoUsername, 
+        preferred_username: tenantId,
+        email: demoUsername,
+        demo_username: demoUsername,
+        roles: [role, Role.FINANCE_USER],
       };
       
       return true;

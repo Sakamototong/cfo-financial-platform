@@ -4,6 +4,7 @@ import api from '../api/client'
 import { useTenant } from '../components/TenantContext'
 import { useUser } from '../components/UserContext'
 import { hasMinRole } from '../components/RequireRole'
+import { useAbortController, isAbortError } from '../hooks/useApi'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface CompanyProfile {
@@ -155,9 +156,11 @@ export default function CompanyProfile() {
     setLoading(true)
     try {
       const r = await api.get('/users/company/profile', { signal })
-      setProfile(r.data || null)
+      // Backend returns {} or { company_name: null } when no profile exists
+      const data = r.data && typeof r.data === 'object' && r.data.company_name ? r.data : null
+      setProfile(data)
     } catch (e: any) {
-      if (!isAbortError(e)) { console.warn(e); setProfile(null) }
+      if (!isAbortError(e)) { console.warn('[CompanyProfile] load error:', e); setProfile(null) }
     } finally { setLoading(false) }
   }, [tenantId])
 

@@ -23,7 +23,11 @@ export class ConsolidationController {
       throw new HttpException('Missing or invalid authorization header', HttpStatus.UNAUTHORIZED);
     }
     const token = authHeader.substring(7);
-    if (token.startsWith('demo-token-')) return 'admin';
+    if (token.startsWith('demo-token-')) {
+      const { AuthService } = require('../auth/auth.service');
+      const parsed = AuthService.parseDemoToken(token);
+      return parsed?.tenant || 'admin';
+    }
     const payload = await this.jwksService.verify(token);
     const tenantId = payload.preferred_username || payload.sub;
     if (!tenantId) throw new HttpException('Tenant ID not found in token', HttpStatus.UNAUTHORIZED);

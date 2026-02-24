@@ -145,7 +145,9 @@ export class UserController {
   async getCompanyProfile(@Headers('authorization') authHeader: string, @Headers('x-tenant-id') tenantHeader: string | undefined) {
     const tenantId = await this.getTenantFromToken(authHeader, tenantHeader);
 
-    return this.userService.getCompanyProfile(tenantId);
+    const profile = await this.userService.getCompanyProfile(tenantId);
+    // Always return a JSON object so the frontend gets a consistent shape
+    return profile || { tenant_id: tenantId, company_name: null };
   }
 
   @Post('company/profile')

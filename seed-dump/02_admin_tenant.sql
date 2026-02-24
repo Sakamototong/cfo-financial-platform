@@ -649,7 +649,7 @@ CREATE TABLE public.financial_statements (
     created_by character varying(255),
     CONSTRAINT financial_statements_period_type_check CHECK (((period_type)::text = ANY ((ARRAY['monthly'::character varying, 'quarterly'::character varying, 'yearly'::character varying])::text[]))),
     CONSTRAINT financial_statements_statement_type_check CHECK (((statement_type)::text = ANY ((ARRAY['PL'::character varying, 'BS'::character varying, 'CF'::character varying])::text[]))),
-    CONSTRAINT financial_statements_status_check CHECK (((status)::text = ANY ((ARRAY['draft'::character varying, 'published'::character varying, 'archived'::character varying])::text[])))
+    CONSTRAINT financial_statements_status_check CHECK (((status)::text = ANY ((ARRAY['draft'::character varying, 'approved'::character varying, 'locked'::character varying])::text[])))
 );
 
 

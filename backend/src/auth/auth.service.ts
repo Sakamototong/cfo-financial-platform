@@ -7,11 +7,49 @@ export class AuthService {
   private readonly realm = process.env.KEYCLOAK_REALM || 'master';
   private readonly clientId = process.env.KEYCLOAK_CLIENT_ID || 'cfo-client';
 
+  // Demo/test user credentials mapped to their roles and tenants
+  private readonly demoUsers: Record<string, { password: string; role: string; tenant: string }> = {
+    'admin':        { password: 'admin',          role: 'super-admin', tenant: 'admin' },
+    'superadmin':   { password: 'SuperAdmin123!', role: 'super-admin', tenant: 'admin' },
+    'admin-user':   { password: 'Secret123!',     role: 'admin',       tenant: 'admin' },
+    'acme-admin':   { password: 'Secret123!',     role: 'admin',       tenant: 'acme_corp_155cf73a2fe388f0' },
+    'analyst-user': { password: 'Secret123!',     role: 'analyst',     tenant: 'admin' },
+    'acme-analyst': { password: 'Secret123!',     role: 'analyst',     tenant: 'acme_corp_155cf73a2fe388f0' },
+    'viewer-user':  { password: 'Secret123!',     role: 'viewer',      tenant: 'admin' },
+    'acme-viewer':  { password: 'Secret123!',     role: 'viewer',      tenant: 'acme_corp_155cf73a2fe388f0' },
+  };
+
+  /** Parse a demo token → { role, username, tenant } or null */
+  static parseDemoToken(token: string): { role: string; username: string; tenant: string } | null {
+    if (!token || !token.startsWith('demo-token-')) return null;
+    // Format: demo-token-{role}.{username}-{timestamp}
+    const body = token.replace('demo-token-', '');       // e.g. "admin.admin-user-1234"
+    const dotIdx = body.indexOf('.');
+    if (dotIdx === -1) {
+      // Legacy format: demo-token-{role}-{timestamp}  (no username)
+      const rolePart = body.replace(/-\d+$/, '');
+      return { role: rolePart.replace(/-/g, '_'), username: 'admin', tenant: 'admin' };
+    }
+    const rolePart = body.substring(0, dotIdx);           // "admin" or "super-admin"
+    const rest = body.substring(dotIdx + 1);              // "admin-user-1234"
+    const usernamePart = rest.replace(/-\d+$/, '');       // "admin-user"
+    const role = rolePart.replace(/-/g, '_');
+    // Look up tenant from static map
+    const TENANT_MAP: Record<string, string> = {
+      'admin': 'admin', 'superadmin': 'admin',
+      'admin-user': 'admin', 'analyst-user': 'admin', 'viewer-user': 'admin',
+      'acme-admin': 'acme_corp_155cf73a2fe388f0', 'acme-analyst': 'acme_corp_155cf73a2fe388f0', 'acme-viewer': 'acme_corp_155cf73a2fe388f0',
+    };
+    return { role, username: usernamePart, tenant: TENANT_MAP[usernamePart] || 'admin' };
+  }
+
   async getToken(username: string, password: string) {
-    // Demo mode: accept admin/admin without Keycloak
-    if (username === 'admin' && password === 'admin') {
+    // Demo mode: accept documented test users without Keycloak
+    const demoUser = this.demoUsers[username];
+    if (demoUser && demoUser.password === password) {
+      // Token format: demo-token-{role}.{username}-{timestamp}
       return {
-        access_token: 'demo-token-super-admin-' + Date.now(),
+        access_token: `demo-token-${demoUser.role}.${username}-${Date.now()}`,
         refresh_token: 'demo-refresh-' + Date.now(),
         expires_in: 3600,
         refresh_expires_in: 7200,

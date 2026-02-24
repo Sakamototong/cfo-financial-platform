@@ -48,9 +48,9 @@ export default function Login(){
         const tenantsRes = await api.get('/my-tenants')
         const tenantList: { id: string; name: string }[] = tenantsRes.data || []
         if (tenantList.length > 0) {
-          // For super_admin keep 'admin' as default; for everyone else pick first result
+          // Only super_admin keeps 'admin' as default; all others use their first tenant
           const role = localStorage.getItem('user_role')
-          const isSuperAdmin = role === 'super_admin' || role === 'admin'
+          const isSuperAdmin = role === 'super_admin'
           if (!isSuperAdmin) {
             localStorage.setItem('tenant_id', tenantList[0].id)
           }

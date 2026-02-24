@@ -41,13 +41,16 @@ export class AuthController {
     }
   })
   async login(@Body() loginDto: LoginDto) {
+    console.log('[auth/login] attempt', { username: loginDto?.username, hasPassword: !!loginDto?.password });
     try {
       const token = await this.authService.getToken(loginDto.username, loginDto.password);
+      console.log('[auth/login] success for', loginDto?.username);
       return {
         success: true,
         data: token
       };
     } catch (error: any) {
+      console.error('[auth/login] FAILED for', loginDto?.username, error.message);
       throw new HttpException(
         {
           success: false,
@@ -130,14 +133,19 @@ export class AuthController {
       };
     }
 
-    // For demo mode (admin/admin), return admin role
-    if (username === 'admin') {
+    // For demo mode users, return their role from the token
+    if (jwtUser.demo_username) {
+      const demoRole = roles.includes('admin') ? 'admin'
+        : roles.includes('analyst') ? 'analyst'
+        : roles.includes('viewer') ? 'viewer'
+        : 'admin';
       return {
         success: true,
         data: {
-          email: 'admin',
-          username: 'admin',
-          role: 'admin',
+          email: jwtUser.demo_username,
+          username: jwtUser.demo_username,
+          full_name: jwtUser.demo_username,
+          role: demoRole,
           is_super_admin: false,
           ...jwtUser,
         },

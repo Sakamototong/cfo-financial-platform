@@ -12,6 +12,23 @@ async function bootstrap() {
   dotenv.config();
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
+  // Global request/response logger to trace all API calls
+  app.use((req: any, res: any, next: any) => {
+    const start = Date.now();
+    const originalEnd = res.end;
+    res.end = function (...args: any[]) {
+      const ms = Date.now() - start;
+      const status = res.statusCode;
+      if (status >= 400) {
+        console.error(`[HTTP] ${req.method} ${req.originalUrl} -> ${status} (${ms}ms) [Origin: ${req.headers?.origin || 'none'}]`);
+      } else {
+        console.log(`[HTTP] ${req.method} ${req.originalUrl} -> ${status} (${ms}ms)`);
+      }
+      originalEnd.apply(res, args);
+    };
+    next();
+  });
+
   // Apply global filters and interceptors (Phase 2 - Security)
   app.useGlobalFilters(new ThrottlerExceptionFilter());
   app.useGlobalInterceptors(new RateLimitHeadersInterceptor());

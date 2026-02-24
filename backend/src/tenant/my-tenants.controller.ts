@@ -17,11 +17,25 @@ export class MyTenantsController {
     const email = req.user?.email || username;
     const roles: string[] = req.user?.roles || [];
     const isSuperAdmin = roles.includes('super_admin');
+    // demo_username is the actual login name (e.g. 'admin-user'), not the tenant ID
+    const demoUsername = req.user?.demo_username;
 
     try {
-      // Super admins and demo admin can see all tenants
-      if (isSuperAdmin || username === 'admin') {
+      // Only true super_admin users (admin/superadmin) can see all tenants
+      // Regular 'admin' role users should only see their own tenant
+      if (isSuperAdmin) {
         return this.tenantService.listTenants();
+      }
+
+      // For demo users, return only the tenant mapped to their username
+      if (demoUsername) {
+        const { AuthService } = require('../auth/auth.service');
+        // Build a fake token to use parseDemoToken logic for tenant lookup
+        const parsed = AuthService.parseDemoToken(`demo-token-x.${demoUsername}-0`);
+        const userTenant = parsed?.tenant || 'admin';
+        const allTenants = await this.tenantService.listTenants();
+        const matched = allTenants.filter((t: any) => t.id === userTenant);
+        return matched.length > 0 ? matched : [allTenants[0] || { id: userTenant, name: userTenant }];
       }
 
       // Get all tenants

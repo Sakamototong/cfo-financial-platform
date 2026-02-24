@@ -91,11 +91,14 @@ export default function StatementDetail() {
     if (!id) return
     setUpdatingStatus(true)
     try {
-      await api.put(`/financial/statements/${id}/status`, { status: newStatus })
+      console.log('[updateStatus] PUT /financial/statements/' + id + '/status', { status: newStatus })
+      const res = await api.put(`/financial/statements/${id}/status`, { status: newStatus })
+      console.log('[updateStatus] success', res.status, res.data)
       setToast({ type: 'success', message: `Status updated to ${newStatus}` })
       await loadStatement()
     } catch (err: any) {
-      const msg = err?.response?.status === 403 ? 'ไม่มีสิทธิ์เปลี่ยนสถานะ — เฉพาะ Admin' : err?.message ?? 'Failed to update status'
+      console.error('[updateStatus] error', err?.response?.status, err?.response?.data, err?.message, err)
+      const msg = err?.response?.status === 403 ? 'ไม่มีสิทธิ์เปลี่ยนสถานะ — เฉพาะ Admin' : err?.response?.data?.message ?? err?.message ?? 'Failed to update status'
       setToast({ type: 'error', message: msg })
     } finally {
       setUpdatingStatus(false)

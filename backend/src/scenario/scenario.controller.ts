@@ -46,7 +46,9 @@ export class ScenarioController {
     const token = authHeader.substring(7);
     // Accept demo tokens during local development
     if (token.startsWith('demo-token-')) {
-      return 'admin';
+      const { AuthService } = require('../auth/auth.service');
+      const parsed = AuthService.parseDemoToken(token);
+      return parsed?.tenant || 'admin';
     }
 
     const payload = await this.jwksService.verify(token);
